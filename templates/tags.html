@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tags</title>
+  <link rel="stylesheet" type="text/css" href="/static/style.css">
+</head>
+<body>
+<h1>All Tags</h1>
+<p><a href="/">Back to files</a></p>
+
+{{range $cat, $tags := .}}
+  <h3>{{$cat}}</h3>
+  <ul>
+  {{range $tags}}
+    <li><a href="/tag/{{$cat}}/{{.Value}}">{{.Value}} ({{.Count}})</a></li>
+  {{end}}
+  </ul>
+{{end}}
+</body>
+</html>

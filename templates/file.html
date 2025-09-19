@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>File {{.File.Filename}}</title>
+  <link rel="stylesheet" type="text/css" href="/static/style.css">
+</head>
+<body>
+<h2>File: {{.File.Filename}}</h2>
+
+{{if hasAnySuffix .File.Filename ".jpg" ".jpeg" ".png" ".gif"}}
+  <img src="/uploads/{{.File.Filename}}" style="max-width:400px"><br>
+{{else if hasAnySuffix .File.Filename ".mp4" ".webm" ".mov"}}
+  <video controls width="400">
+    <source src="/uploads/{{.File.Filename}}">
+  </video><br>
+{{else}}
+  <a href="/uploads/{{.File.Filename}}">Download file</a><br>
+{{end}}
+
+<h3>Tags</h3>
+<ul>
+{{range $k, $v := .File.Tags}}
+  <li>{{$k}}: {{$v}}
+    <form style="display:inline" method="post" action="/file/{{$.File.ID}}/tag/{{$k}}/{{$v}}/delete">
+      <button type="submit">Remove</button>
+    </form>
+  </li>
+{{else}}
+  <li>No tags yet</li>
+{{end}}
+</ul>
+
+<h3>Assign New Tag</h3>
+<form method="post">
+  Category: <input type="text" name="category" list="categories"><br>
+  <datalist id="categories">
+    {{range .Categories}}
+      <option value="{{.}}">
+    {{end}}
+  </datalist>
+  Value: <input type="text" name="value"><br>
+  <button type="submit">Add Tag</button>
+</form>
+
+<p><a href="/">← Back to list</a></p>
+</body>
+</html>

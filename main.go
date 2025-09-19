@@ -1,0 +1,288 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"html/template"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+var (
+	db   *sql.DB
+	tmpl *template.Template
+)
+
+type File struct {
+	ID       int
+	Filename string
+	Path     string
+	Tags     map[string]string
+}
+
+type TagDisplay struct {
+	Value string
+	Count int
+}
+
+func main() {
+	var err error
+	db, err = sql.Open("sqlite3", "./database.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+	CREATE TABLE IF NOT EXISTS files (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		filename TEXT,
+		path TEXT
+	);
+	CREATE TABLE IF NOT EXISTS categories (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT UNIQUE
+	);
+	CREATE TABLE IF NOT EXISTS tags (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		category_id INTEGER,
+		value TEXT,
+		UNIQUE(category_id, value)
+	);
+	CREATE TABLE IF NOT EXISTS file_tags (
+		file_id INTEGER,
+		tag_id INTEGER,
+		UNIQUE(file_id, tag_id)
+	);
+	`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	os.MkdirAll("uploads", 0755)
+	os.MkdirAll("static", 0755)
+
+	tmpl = template.Must(template.New("").Funcs(template.FuncMap{
+		"hasAnySuffix": func(s string, suffixes ...string) bool {
+			for _, suf := range suffixes {
+				if strings.HasSuffix(strings.ToLower(s), suf) {
+					return true
+				}
+			}
+			return false
+		},
+	}).ParseGlob("templates/*.html"))
+
+	http.HandleFunc("/", listFilesHandler)
+	http.HandleFunc("/upload", uploadHandler)
+	http.HandleFunc("/file/", fileRouter)
+	http.HandleFunc("/tags", tagsHandler)
+	http.HandleFunc("/tag/", tagFilterHandler)
+
+	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
+	log.Println("Server started at http://localhost:8080")
+	http.ListenAndServe(":8080", nil)
+}
+
+// List all files
+func listFilesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, _ := db.Query("SELECT id, filename, path FROM files ORDER BY id DESC")
+	defer rows.Close()
+	var files []File
+	for rows.Next() {
+		var f File
+		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		files = append(files, f)
+	}
+	tmpl.ExecuteTemplate(w, "list.html", files)
+}
+
+// Upload a file
+func uploadHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		tmpl.ExecuteTemplate(w, "upload.html", nil)
+		return
+	}
+
+	file, header, _ := r.FormFile("file")
+	defer file.Close()
+
+	dstPath := filepath.Join("uploads", header.Filename)
+	dst, _ := os.Create(dstPath)
+	defer dst.Close()
+	_, _ = dst.ReadFrom(file)
+
+	res, _ := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", header.Filename, dstPath)
+	id, _ := res.LastInsertId()
+
+	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
+}
+
+// Router for file operations and tag deletion
+func fileRouter(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) >= 7 && parts[3] == "tag" {
+		tagActionHandler(w, r, parts)
+		return
+	}
+	fileHandler(w, r)
+}
+
+// File detail and add tags
+func fileHandler(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/file/")
+	if strings.Contains(idStr, "/") {
+		idStr = strings.SplitN(idStr, "/", 2)[0]
+	}
+
+	var f File
+	db.QueryRow("SELECT id, filename, path FROM files WHERE id=?", idStr).Scan(&f.ID, &f.Filename, &f.Path)
+
+	f.Tags = make(map[string]string)
+	rows, _ := db.Query(`
+		SELECT c.name, t.value
+		FROM tags t
+		JOIN categories c ON c.id = t.category_id
+		JOIN file_tags ft ON ft.tag_id = t.id
+		WHERE ft.file_id=?`, f.ID)
+	for rows.Next() {
+		var cat, val string
+		rows.Scan(&cat, &val)
+		f.Tags[cat] = val
+	}
+	rows.Close()
+
+	catRows, _ := db.Query("SELECT name FROM categories ORDER BY name")
+	var cats []string
+	for catRows.Next() {
+		var c string
+		catRows.Scan(&c)
+		cats = append(cats, c)
+	}
+	catRows.Close()
+
+	if r.Method == http.MethodPost {
+		cat := r.FormValue("category")
+		val := r.FormValue("value")
+		if cat != "" && val != "" {
+			var catID int
+			db.QueryRow("SELECT id FROM categories WHERE name=?", cat).Scan(&catID)
+			if catID == 0 {
+				res, _ := db.Exec("INSERT INTO categories(name) VALUES(?)", cat)
+				cid, _ := res.LastInsertId()
+				catID = int(cid)
+			}
+			var tagID int
+			db.QueryRow("SELECT id FROM tags WHERE category_id=? AND value=?", catID, val).Scan(&tagID)
+			if tagID == 0 {
+				res, _ := db.Exec("INSERT INTO tags(category_id, value) VALUES(?, ?)", catID, val)
+				tid, _ := res.LastInsertId()
+				tagID = int(tid)
+			}
+			db.Exec("INSERT OR IGNORE INTO file_tags(file_id, tag_id) VALUES (?, ?)", f.ID, tagID)
+		}
+		http.Redirect(w, r, "/file/"+idStr, http.StatusSeeOther)
+		return
+	}
+
+	tmpl.ExecuteTemplate(w, "file.html", struct {
+		File       File
+		Categories []string
+	}{f, cats})
+}
+
+// Delete tag from file
+func tagActionHandler(w http.ResponseWriter, r *http.Request, parts []string) {
+	fileID := parts[2]
+	cat := parts[4]
+	val := parts[5]
+	action := parts[6]
+
+	if action == "delete" && r.Method == http.MethodPost {
+		var tagID int
+		db.QueryRow(`
+			SELECT t.id
+			FROM tags t
+			JOIN categories c ON c.id=t.category_id
+			WHERE c.name=? AND t.value=?`, cat, val).Scan(&tagID)
+		if tagID != 0 {
+			db.Exec("DELETE FROM file_tags WHERE file_id=? AND tag_id=?", fileID, tagID)
+		}
+	}
+	http.Redirect(w, r, "/file/"+fileID, http.StatusSeeOther)
+}
+
+// Show all tags
+func tagsHandler(w http.ResponseWriter, r *http.Request) {
+	rows, _ := db.Query(`
+		SELECT c.name, t.value, COUNT(ft.file_id)
+		FROM tags t
+		JOIN categories c ON c.id = t.category_id
+		LEFT JOIN file_tags ft ON ft.tag_id = t.id
+		GROUP BY t.id
+		HAVING COUNT(ft.file_id) > 0
+		ORDER BY c.name, t.value`)
+	defer rows.Close()
+
+	tagMap := make(map[string][]TagDisplay)
+	for rows.Next() {
+		var cat, val string
+		var count int
+		rows.Scan(&cat, &val, &count)
+		tagMap[cat] = append(tagMap[cat], TagDisplay{Value: val, Count: count})
+	}
+
+	tmpl.ExecuteTemplate(w, "tags.html", tagMap)
+}
+
+// Filter files by tags
+func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tag/"), "/")
+	if len(pathParts)%2 != 0 {
+		http.Error(w, "Invalid tag filter path", http.StatusBadRequest)
+		return
+	}
+
+	type filter struct {
+		Category string
+		Value    string
+	}
+
+	var filters []filter
+	for i := 0; i < len(pathParts); i += 2 {
+		filters = append(filters, filter{pathParts[i], pathParts[i+1]})
+	}
+
+	query := `SELECT f.id, f.filename, f.path FROM files f WHERE 1=1`
+	args := []interface{}{}
+	for _, f := range filters {
+		query += `
+			AND EXISTS (
+				SELECT 1
+				FROM file_tags ft
+				JOIN tags t ON ft.tag_id = t.id
+				JOIN categories c ON c.id = t.category_id
+				WHERE ft.file_id = f.id AND c.name = ? AND t.value = ?
+			)`
+		args = append(args, f.Category, f.Value)
+	}
+
+	rows, _ := db.Query(query, args...)
+	defer rows.Close()
+
+	var files []File
+	for rows.Next() {
+		var f File
+		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		files = append(files, f)
+	}
+
+	tmpl.ExecuteTemplate(w, "list.html", files)
+}

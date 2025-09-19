@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"io"
+	"net/url"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -80,17 +82,88 @@ func main() {
 
 	http.HandleFunc("/", listFilesHandler)
 	http.HandleFunc("/upload", uploadHandler)
+	http.HandleFunc("/upload-url", uploadFromURLHandler)
 	http.HandleFunc("/file/", fileRouter)
 	http.HandleFunc("/tags", tagsHandler)
 	http.HandleFunc("/tag/", tagFilterHandler)
 	http.HandleFunc("/untagged", untaggedFilesHandler)
-
 
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
 	log.Println("Server started at http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
+}
+
+// Upload file from URL
+func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/upload", http.StatusSeeOther)
+		return
+	}
+
+	fileURL := r.FormValue("fileurl")
+	if fileURL == "" {
+		http.Error(w, "No URL provided", http.StatusBadRequest)
+		return
+	}
+
+	// Validate URL
+	parsedURL, err := url.ParseRequestURI(fileURL)
+	if err != nil || !(parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+
+	// Download the file
+	resp, err := http.Get(fileURL)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		http.Error(w, "Failed to download file", http.StatusBadRequest)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Determine filename from URL
+	parts := strings.Split(parsedURL.Path, "/")
+	filename := parts[len(parts)-1]
+	if filename == "" {
+		filename = "file_from_url"
+	}
+
+	dstPath := filepath.Join("uploads", filename)
+
+	// Avoid overwriting existing files
+	for i := 1; ; i++ {
+		if _, err := os.Stat(dstPath); os.IsNotExist(err) {
+			break
+		}
+		ext := filepath.Ext(filename)
+		name := strings.TrimSuffix(filename, ext)
+		dstPath = filepath.Join("uploads", fmt.Sprintf("%s_%d%s", name, i, ext))
+	}
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, resp.Body)
+	if err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+
+	// Add to database
+	res, err := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", filepath.Base(dstPath), dstPath)
+	if err != nil {
+		http.Error(w, "Failed to record file", http.StatusInternalServerError)
+		return
+	}
+
+	id, _ := res.LastInsertId()
+	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
 }
 
 // List all files, plus untagged files

@@ -83,6 +83,8 @@ func main() {
 	http.HandleFunc("/file/", fileRouter)
 	http.HandleFunc("/tags", tagsHandler)
 	http.HandleFunc("/tag/", tagFilterHandler)
+	http.HandleFunc("/untagged", untaggedFilesHandler)
+
 
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -91,18 +93,70 @@ func main() {
 	http.ListenAndServe(":8080", nil)
 }
 
-// List all files
+// List all files, plus untagged files
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	rows, _ := db.Query("SELECT id, filename, path FROM files ORDER BY id DESC")
+	// Tagged files
+	rows, _ := db.Query(`
+		SELECT DISTINCT f.id, f.filename, f.path
+		FROM files f
+		JOIN file_tags ft ON ft.file_id = f.id
+		ORDER BY f.id DESC
+	`)
 	defer rows.Close()
+	var tagged []File
+	for rows.Next() {
+		var f File
+		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		tagged = append(tagged, f)
+	}
+
+	// Untagged files
+	untaggedRows, _ := db.Query(`
+		SELECT f.id, f.filename, f.path
+		FROM files f
+		LEFT JOIN file_tags ft ON ft.file_id = f.id
+		WHERE ft.file_id IS NULL
+		ORDER BY f.id DESC
+	`)
+	defer untaggedRows.Close()
+	var untagged []File
+	for untaggedRows.Next() {
+		var f File
+		untaggedRows.Scan(&f.ID, &f.Filename, &f.Path)
+		untagged = append(untagged, f)
+	}
+
+	tmpl.ExecuteTemplate(w, "list.html", struct {
+		Tagged   []File
+		Untagged []File
+	}{tagged, untagged})
+}
+
+
+// Show untagged files at /untagged
+func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, _ := db.Query(`
+		SELECT f.id, f.filename, f.path
+		FROM files f
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM file_tags ft
+			WHERE ft.file_id = f.id
+		)
+		ORDER BY f.id DESC
+	`)
+	defer rows.Close()
+
 	var files []File
 	for rows.Next() {
 		var f File
 		rows.Scan(&f.ID, &f.Filename, &f.Path)
 		files = append(files, f)
 	}
-	tmpl.ExecuteTemplate(w, "list.html", files)
+
+	tmpl.ExecuteTemplate(w, "untagged.html", files)
 }
+
 
 // Upload a file
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -284,5 +338,10 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		files = append(files, f)
 	}
 
-	tmpl.ExecuteTemplate(w, "list.html", files)
+	// Wrap in the same struct expected by list.html
+	tmpl.ExecuteTemplate(w, "list.html", struct {
+		Tagged   []File
+		Untagged []File
+	}{files, nil})
 }
+

@@ -9,13 +9,17 @@
 <h1>All Tags</h1>
 <p><a href="/">Back to files</a></p>
 
+<ul class="tag-menu">
 {{range $cat, $tags := .}}
-  <h3>{{$cat}}</h3>
-  <ul>
-  {{range $tags}}
-    <li><a href="/tag/{{$cat}}/{{.Value}}">{{.Value}} ({{.Count}})</a></li>
-  {{end}}
-  </ul>
+  <li>
+    <a href="#">{{$cat}}</a>
+    <ul>
+      {{range $tags}}
+        <li><a href="/tag/{{$cat}}/{{.Value}}">{{.Value}} ({{.Count}})</a></li>
+      {{end}}
+    </ul>
+  </li>
 {{end}}
+</ul>
 </body>
 </html>

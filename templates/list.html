@@ -13,7 +13,7 @@
 {{range .}}
   <li>
     <a href="/file/{{.ID}}">{{.Filename}}</a><br>
-    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif"}}
+    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
       <img src="/uploads/{{.Filename}}" style="max-width:150px">
     {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}
       <video width="150" controls>

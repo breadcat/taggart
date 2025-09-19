@@ -8,7 +8,7 @@
 <body>
 <h2>File: {{.File.Filename}}</h2>
 
-{{if hasAnySuffix .File.Filename ".jpg" ".jpeg" ".png" ".gif"}}
+{{if hasAnySuffix .File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
   <img src="/uploads/{{.File.Filename}}" style="max-width:400px"><br>
 {{else if hasAnySuffix .File.Filename ".mp4" ".webm" ".mov"}}
   <video controls width="400">

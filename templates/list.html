@@ -1,6 +1,7 @@
 {{template "_header" .}}
 <h1>Files</h1>
 
+{{if .Data.Tagged}}
 <h2>Tagged Files</h2>
 <ul>
 {{range .Data.Tagged}}
@@ -18,7 +19,9 @@
   <li>No tagged files yet.</li>
 {{end}}
 </ul>
+{{end}}
 
+{{if .Data.Untagged}}
 <h2>Untagged Files</h2>
 <ul>
 {{range .Data.Untagged}}
@@ -36,4 +39,6 @@
   <li>No untagged files.</li>
 {{end}}
 </ul>
+{{end}}
+
 {{template "_footer"}}

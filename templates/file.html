@@ -12,6 +12,13 @@ File {{.Data.File.Filename}}
   <a href="/uploads/{{.Data.File.Filename}}">Download file</a><br>
 {{end}}
 
+<h3>Rename File</h3>
+<form method="post" action="/file/{{.Data.File.ID}}/rename">
+  New filename: <input type="text" name="newfilename" value="{{.Data.File.Filename}}" required style="width:300px"><br>
+  <small>Include file extension (e.g., "new-name.jpg")</small><br><br>
+  <button type="submit" onclick="return confirm('Are you sure you want to rename this file?')">Rename File</button>
+</form>
+
 <h3>Tags</h3>
 <ul>
 {{range $k, $v := .Data.File.Tags}}

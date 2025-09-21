@@ -287,14 +287,85 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
 }
 
-// Router for file operations and tag deletion
+// Router for file operations, tag deletion, and rename
 func fileRouter(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
+
+	// Handle rename: /file/{id}/rename
+	if len(parts) >= 4 && parts[3] == "rename" {
+		fileRenameHandler(w, r, parts)
+		return
+	}
+
+	// Handle tag deletion: /file/{id}/tag/{category}/{value}/delete
 	if len(parts) >= 7 && parts[3] == "tag" {
 		tagActionHandler(w, r, parts)
 		return
 	}
+
+	// Default file handler
 	fileHandler(w, r)
+}
+
+// Handle file renaming
+func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/file/"+parts[2], http.StatusSeeOther)
+		return
+	}
+
+	fileID := parts[2]
+	newFilename := strings.TrimSpace(r.FormValue("newfilename"))
+
+	if newFilename == "" {
+		http.Error(w, "New filename cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitize filename
+	newFilename = strings.ReplaceAll(newFilename, "/", "_")
+	newFilename = strings.ReplaceAll(newFilename, "\\", "_")
+	newFilename = strings.ReplaceAll(newFilename, "..", "_")
+
+	// Get current file info
+	var currentFile File
+	err := db.QueryRow("SELECT id, filename, path FROM files WHERE id=?", fileID).Scan(&currentFile.ID, &currentFile.Filename, &currentFile.Path)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Skip if filename hasn't changed
+	if currentFile.Filename == newFilename {
+		http.Redirect(w, r, "/file/"+fileID, http.StatusSeeOther)
+		return
+	}
+
+	// Check if new filename already exists
+	newPath := filepath.Join("uploads", newFilename)
+	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
+		http.Error(w, "A file with that name already exists", http.StatusConflict)
+		return
+	}
+
+	// Rename the physical file
+	err = os.Rename(currentFile.Path, newPath)
+	if err != nil {
+		http.Error(w, "Failed to rename physical file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update database
+	_, err = db.Exec("UPDATE files SET filename=?, path=? WHERE id=?", newFilename, newPath, fileID)
+	if err != nil {
+		// Try to rename file back if database update fails
+		os.Rename(newPath, currentFile.Path)
+		http.Error(w, "Failed to update database", http.StatusInternalServerError)
+		return
+	}
+
+	// Redirect back to file page
+	http.Redirect(w, r, "/file/"+fileID, http.StatusSeeOther)
 }
 
 // File detail and add tags

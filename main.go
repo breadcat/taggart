@@ -113,6 +113,8 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	customFilename := strings.TrimSpace(r.FormValue("filename"))
+
 	// Validate URL
 	parsedURL, err := url.ParseRequestURI(fileURL)
 	if err != nil || !(parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
@@ -128,9 +130,23 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Determine filename from URL
-	parts := strings.Split(parsedURL.Path, "/")
-	filename := parts[len(parts)-1]
+	// Determine filename
+	var filename string
+	if customFilename != "" {
+		filename = customFilename
+	} else {
+		// Use basename from URL as before
+		parts := strings.Split(parsedURL.Path, "/")
+		filename = parts[len(parts)-1]
+		if filename == "" {
+			filename = "file_from_url"
+		}
+	}
+
+	// Sanitize filename (remove potentially dangerous characters)
+	filename = strings.ReplaceAll(filename, "/", "_")
+	filename = strings.ReplaceAll(filename, "\\", "_")
+	filename = strings.ReplaceAll(filename, "..", "_")
 	if filename == "" {
 		filename = "file_from_url"
 	}
@@ -138,13 +154,15 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 	dstPath := filepath.Join("uploads", filename)
 
 	// Avoid overwriting existing files
+	originalFilename := filename
 	for i := 1; ; i++ {
 		if _, err := os.Stat(dstPath); os.IsNotExist(err) {
 			break
 		}
-		ext := filepath.Ext(filename)
-		name := strings.TrimSuffix(filename, ext)
-		dstPath = filepath.Join("uploads", fmt.Sprintf("%s_%d%s", name, i, ext))
+		ext := filepath.Ext(originalFilename)
+		name := strings.TrimSuffix(originalFilename, ext)
+		filename = fmt.Sprintf("%s_%d%s", name, i, ext)
+		dstPath = filepath.Join("uploads", filename)
 	}
 
 	dst, err := os.Create(dstPath)
@@ -161,7 +179,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add to database
-	res, err := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", filepath.Base(dstPath), dstPath)
+	res, err := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", filename, dstPath)
 	if err != nil {
 		http.Error(w, "Failed to record file", http.StatusInternalServerError)
 		return

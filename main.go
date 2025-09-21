@@ -287,9 +287,15 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
 }
 
-// Router for file operations, tag deletion, and rename
+// Router for file operations, tag deletion, rename, and delete
 func fileRouter(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
+
+	// Handle delete: /file/{id}/delete
+	if len(parts) >= 4 && parts[3] == "delete" {
+		fileDeleteHandler(w, r, parts)
+		return
+	}
 
 	// Handle rename: /file/{id}/rename
 	if len(parts) >= 4 && parts[3] == "rename" {
@@ -305,6 +311,63 @@ func fileRouter(w http.ResponseWriter, r *http.Request) {
 
 	// Default file handler
 	fileHandler(w, r)
+}
+
+// Handle file deletion
+func fileDeleteHandler(w http.ResponseWriter, r *http.Request, parts []string) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/file/"+parts[2], http.StatusSeeOther)
+		return
+	}
+
+	fileID := parts[2]
+
+	// Get current file info
+	var currentFile File
+	err := db.QueryRow("SELECT id, filename, path FROM files WHERE id=?", fileID).Scan(&currentFile.ID, &currentFile.Filename, &currentFile.Path)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Start a transaction to ensure data consistency
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback() // Will be ignored if tx.Commit() is called
+
+	// Delete file_tags relationships
+	_, err = tx.Exec("DELETE FROM file_tags WHERE file_id=?", fileID)
+	if err != nil {
+		http.Error(w, "Failed to delete file tags", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete file record
+	_, err = tx.Exec("DELETE FROM files WHERE id=?", fileID)
+	if err != nil {
+		http.Error(w, "Failed to delete file record", http.StatusInternalServerError)
+		return
+	}
+
+	// Commit the database transaction
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete the physical file (after successful database deletion)
+	err = os.Remove(currentFile.Path)
+	if err != nil {
+		// Log the error but don't fail the request - database is already clean
+		log.Printf("Warning: Failed to delete physical file %s: %v", currentFile.Path, err)
+	}
+
+	// Redirect to home page with success
+	http.Redirect(w, r, "/?deleted="+currentFile.Filename, http.StatusSeeOther)
 }
 
 // Handle file renaming

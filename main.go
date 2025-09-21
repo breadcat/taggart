@@ -11,6 +11,8 @@ import (
 	"strings"
 	"io"
 	"net/url"
+	"encoding/json"
+	"io/ioutil"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -18,6 +20,7 @@ import (
 var (
 	db   *sql.DB
 	tmpl *template.Template
+	config Config
 )
 
 type File struct {
@@ -25,6 +28,12 @@ type File struct {
 	Filename string
 	Path     string
 	Tags     map[string]string
+}
+
+type Config struct {
+	DatabasePath  string `json:"database_path"`
+	UploadDir     string `json:"upload_dir"`
+	ServerPort    string `json:"server_port"`
 }
 
 type TagDisplay struct {
@@ -38,8 +47,13 @@ type PageData struct {
 }
 
 func main() {
+	// Load configuration first
+	if err := loadConfig(); err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
 	var err error
-	db, err = sql.Open("sqlite3", "./database.db")
+	db, err = sql.Open("sqlite3", config.DatabasePath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -71,7 +85,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	os.MkdirAll("uploads", 0755)
+	// Use configured upload directory
+	os.MkdirAll(config.UploadDir, 0755)
 	os.MkdirAll("static", 0755)
 
 	tmpl = template.Must(template.New("").Funcs(template.FuncMap{
@@ -93,12 +108,19 @@ func main() {
 	http.HandleFunc("/tag/", tagFilterHandler)
 	http.HandleFunc("/untagged", untaggedFilesHandler)
 	http.HandleFunc("/search", searchHandler)
+	http.HandleFunc("/settings", settingsHandler)
 
-	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+	// Use configured upload directory for file serving
+	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(config.UploadDir))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
-	log.Println("Server started at http://localhost:8080")
-	http.ListenAndServe(":8080", nil)
+	log.Printf("Server started at http://localhost%s", config.ServerPort)
+	log.Printf("Database: %s", config.DatabasePath)
+	log.Printf("Upload directory: %s", config.UploadDir)
+	http.ListenAndServe(config.ServerPort, nil)
+}
+
+
 func searchHandler(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 
@@ -648,4 +670,128 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmpl.ExecuteTemplate(w, "list.html", pageData)
+}
+
+func loadConfig() error {
+	// Set defaults
+	config = Config{
+		DatabasePath: "./database.db",
+		UploadDir:    "uploads",
+		ServerPort:   ":8080",
+	}
+
+	// Try to load existing config
+	if data, err := ioutil.ReadFile("config.json"); err == nil {
+		if err := json.Unmarshal(data, &config); err != nil {
+			return err
+		}
+	}
+
+	// Ensure upload directory exists
+	return os.MkdirAll(config.UploadDir, 0755)
+}
+
+func saveConfig() error {
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile("config.json", data, 0644)
+}
+
+func validateConfig(newConfig Config) error {
+	// Validate database path is not empty
+	if newConfig.DatabasePath == "" {
+		return fmt.Errorf("database path cannot be empty")
+	}
+
+	// Validate upload directory is not empty
+	if newConfig.UploadDir == "" {
+		return fmt.Errorf("upload directory cannot be empty")
+	}
+
+	// Validate server port format
+	if newConfig.ServerPort == "" || !strings.HasPrefix(newConfig.ServerPort, ":") {
+		return fmt.Errorf("server port must be in format ':8080'")
+	}
+
+	// Try to create upload directory if it doesn't exist
+	if err := os.MkdirAll(newConfig.UploadDir, 0755); err != nil {
+		return fmt.Errorf("cannot create upload directory: %v", err)
+	}
+
+	return nil
+}
+
+// Add this settings handler function
+func settingsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// Handle settings update
+		newConfig := Config{
+			DatabasePath: strings.TrimSpace(r.FormValue("database_path")),
+			UploadDir:    strings.TrimSpace(r.FormValue("upload_dir")),
+			ServerPort:   strings.TrimSpace(r.FormValue("server_port")),
+		}
+
+		// Validate new configuration
+		if err := validateConfig(newConfig); err != nil {
+			pageData := PageData{
+				Title: "Settings",
+				Data: struct {
+					Config Config
+					Error  string
+				}{config, err.Error()},
+			}
+			tmpl.ExecuteTemplate(w, "settings.html", pageData)
+			return
+		}
+
+		// Check if database path changed and requires restart
+		needsRestart := (newConfig.DatabasePath != config.DatabasePath ||
+						newConfig.ServerPort != config.ServerPort)
+
+		// Save new configuration
+		config = newConfig
+		if err := saveConfig(); err != nil {
+			pageData := PageData{
+				Title: "Settings",
+				Data: struct {
+					Config Config
+					Error  string
+				}{config, "Failed to save configuration: " + err.Error()},
+			}
+			tmpl.ExecuteTemplate(w, "settings.html", pageData)
+			return
+		}
+
+		// Show success message
+		var message string
+		if needsRestart {
+			message = "Settings saved successfully! Please restart the server for database/port changes to take effect."
+		} else {
+			message = "Settings saved successfully!"
+		}
+
+		pageData := PageData{
+			Title: "Settings",
+			Data: struct {
+				Config  Config
+				Error   string
+				Success string
+			}{config, "", message},
+		}
+		tmpl.ExecuteTemplate(w, "settings.html", pageData)
+		return
+	}
+
+	// Show settings form
+	pageData := PageData{
+		Title: "Settings",
+		Data: struct {
+			Config  Config
+			Error   string
+			Success string
+		}{config, "", ""},
+	}
+	tmpl.ExecuteTemplate(w, "settings.html", pageData)
 }

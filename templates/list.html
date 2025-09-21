@@ -1,17 +1,10 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Files</title>
-  <link rel="stylesheet" type="text/css" href="/static/style.css">
-</head>
-<body>
+{{template "_header" .}}
 <h1>Files</h1>
 <p><a href="/upload">Upload new file</a> | <a href="/tags">Browse tags</a> | <a href="/untagged">Untagged files</a></p>
 
 <h2>Tagged Files</h2>
 <ul>
-{{range .Tagged}}
+{{range .Data.Tagged}}
   <li>
     <a href="/file/{{.ID}}">{{.Filename}}</a><br>
     {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
@@ -29,7 +22,7 @@
 
 <h2>Untagged Files</h2>
 <ul>
-{{range .Untagged}}
+{{range .Data.Untagged}}
   <li>
     <a href="/file/{{.ID}}">{{.Filename}}</a><br>
     {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
@@ -44,5 +37,4 @@
   <li>No untagged files.</li>
 {{end}}
 </ul>
-</body>
-</html>
+{{template "_footer"}}

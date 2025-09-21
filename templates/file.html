@@ -1,28 +1,22 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>File {{.File.Filename}}</title>
-  <link rel="stylesheet" type="text/css" href="/static/style.css">
-</head>
-<body>
-<h2>File: {{.File.Filename}}</h2>
+{{template "_header" .}}
+File {{.Data.File.Filename}}
+<h2>File: {{.Data.File.Filename}}</h2>
 
-{{if hasAnySuffix .File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
-  <img src="/uploads/{{.File.Filename}}" style="max-width:400px"><br>
-{{else if hasAnySuffix .File.Filename ".mp4" ".webm" ".mov"}}
+{{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
+  <img src="/uploads/{{.Data.File.Filename}}" style="max-width:400px"><br>
+{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov"}}
   <video controls width="400">
-    <source src="/uploads/{{.File.Filename}}">
+    <source src="/uploads/{{.Data.File.Filename}}">
   </video><br>
 {{else}}
-  <a href="/uploads/{{.File.Filename}}">Download file</a><br>
+  <a href="/uploads/{{.Data.File.Filename}}">Download file</a><br>
 {{end}}
 
 <h3>Tags</h3>
 <ul>
-{{range $k, $v := .File.Tags}}
+{{range $k, $v := .Data.File.Tags}}
   <li>{{$k}}: {{$v}}
-    <form style="display:inline" method="post" action="/file/{{$.File.ID}}/tag/{{$k}}/{{$v}}/delete">
+    <form style="display:inline" method="post" action="/file/{{$.Data.File.ID}}/tag/{{$k}}/{{$v}}/delete">
       <button type="submit">Remove</button>
     </form>
   </li>
@@ -35,7 +29,7 @@
 <form method="post">
   Category: <input type="text" name="category" list="categories"><br>
   <datalist id="categories">
-    {{range .Categories}}
+    {{range .Data.Categories}}
       <option value="{{.}}">
     {{end}}
   </datalist>
@@ -44,5 +38,4 @@
 </form>
 
 <p><a href="/">← Back to list</a></p>
-</body>
-</html>
+{{template "_footer"}}

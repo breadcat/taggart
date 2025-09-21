@@ -1,3 +1,10 @@
+{{define "_header"}}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{{if .Title}}{{.Title}} - Taggart{{else}}Taggart{{end}}</title>
+  <style>
 /* main body styling */
 body {background: #1a1a1a; color: #cfcfcf; font-family: sans-serif}
 a {color: lightblue; text-decoration: none}
@@ -13,3 +20,7 @@ ul.tag-menu li ul li,ul.tag-menu li:hover>ul{display:block}
 ul.tag-menu li ul li ul{left:100%;top:0}
 ul.tag-menu li ul li a{background:#f9f9f9}
 ul.tag-menu li ul li a:hover{background:#ddd}
+  </style>
+</head>
+<body>
+{{end}}

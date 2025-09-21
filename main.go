@@ -32,6 +32,11 @@ type TagDisplay struct {
 	Count int
 }
 
+type PageData struct {
+	Title string
+	Data  interface{}
+}
+
 func main() {
 	var err error
 	db, err = sql.Open("sqlite3", "./database.db")
@@ -199,12 +204,16 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 		untagged = append(untagged, f)
 	}
 
-	tmpl.ExecuteTemplate(w, "list.html", struct {
-		Tagged   []File
-		Untagged []File
-	}{tagged, untagged})
-}
+	pageData := PageData{
+		Title: "Home",
+		Data: struct {
+			Tagged   []File
+			Untagged []File
+		}{tagged, untagged},
+	}
 
+	tmpl.ExecuteTemplate(w, "list.html", pageData)
+}
 
 // Show untagged files at /untagged
 func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
@@ -227,14 +236,22 @@ func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
 		files = append(files, f)
 	}
 
-	tmpl.ExecuteTemplate(w, "untagged.html", files)
-}
+	pageData := PageData{
+		Title: "Untagged Files",
+		Data:  files,
+	}
 
+	tmpl.ExecuteTemplate(w, "untagged.html", pageData)
+}
 
 // Upload a file
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		tmpl.ExecuteTemplate(w, "upload.html", nil)
+		pageData := PageData{
+			Title: "Upload File",
+			Data:  nil,
+		}
+		tmpl.ExecuteTemplate(w, "upload.html", pageData)
 		return
 	}
 
@@ -319,10 +336,15 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl.ExecuteTemplate(w, "file.html", struct {
-		File       File
-		Categories []string
-	}{f, cats})
+	pageData := PageData{
+		Title: f.Filename,
+		Data: struct {
+			File       File
+			Categories []string
+		}{f, cats},
+	}
+
+	tmpl.ExecuteTemplate(w, "file.html", pageData)
 }
 
 // Delete tag from file
@@ -366,7 +388,12 @@ func tagsHandler(w http.ResponseWriter, r *http.Request) {
 		tagMap[cat] = append(tagMap[cat], TagDisplay{Value: val, Count: count})
 	}
 
-	tmpl.ExecuteTemplate(w, "tags.html", tagMap)
+	pageData := PageData{
+		Title: "All Tags",
+		Data:  tagMap,
+	}
+
+	tmpl.ExecuteTemplate(w, "tags.html", pageData)
 }
 
 // Filter files by tags
@@ -411,10 +438,20 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		files = append(files, f)
 	}
 
-	// Wrap in the same struct expected by list.html
-	tmpl.ExecuteTemplate(w, "list.html", struct {
-		Tagged   []File
-		Untagged []File
-	}{files, nil})
-}
+	// Create title from filters
+	var titleParts []string
+	for _, f := range filters {
+		titleParts = append(titleParts, fmt.Sprintf("%s: %s", f.Category, f.Value))
+	}
+	title := "Tagged: " + strings.Join(titleParts, ", ")
 
+	pageData := PageData{
+		Title: title,
+		Data: struct {
+			Tagged   []File
+			Untagged []File
+		}{files, nil},
+	}
+
+	tmpl.ExecuteTemplate(w, "list.html", pageData)
+}

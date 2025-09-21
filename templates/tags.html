@@ -1,16 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Tags</title>
-  <link rel="stylesheet" type="text/css" href="/static/style.css">
-</head>
-<body>
+{{template "_header" .}}
 <h1>All Tags</h1>
 <p><a href="/">Back to files</a></p>
 
 <ul class="tag-menu">
-{{range $cat, $tags := .}}
+{{range $cat, $tags := .Data}}
   <li>
     <a href="#">{{$cat}}</a>
     <ul>
@@ -21,5 +14,4 @@
   </li>
 {{end}}
 </ul>
-</body>
-</html>
+{{template "_footer"}}

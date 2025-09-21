@@ -92,12 +92,54 @@ func main() {
 	http.HandleFunc("/tags", tagsHandler)
 	http.HandleFunc("/tag/", tagFilterHandler)
 	http.HandleFunc("/untagged", untaggedFilesHandler)
+	http.HandleFunc("/search", searchHandler)
 
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
 	log.Println("Server started at http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+
+	var files []File
+	var searchTitle string
+
+	if query != "" {
+		// Convert wildcards to SQL LIKE pattern
+		// * becomes % and ? becomes _ (standard SQL wildcards)
+		sqlPattern := strings.ReplaceAll(query, "*", "%")
+		sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
+
+		// Search for files matching the pattern
+		rows, err := db.Query("SELECT id, filename, path FROM files WHERE filename LIKE ? ORDER BY filename", sqlPattern)
+		if err != nil {
+			http.Error(w, "Search failed", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var f File
+			rows.Scan(&f.ID, &f.Filename, &f.Path)
+			files = append(files, f)
+		}
+
+		searchTitle = fmt.Sprintf("Search Results for: %s", query)
+	} else {
+		searchTitle = "Search Files"
+	}
+
+	// Always initialize the data structure properly
+	pageData := PageData{
+		Title: searchTitle,
+		Data: struct {
+			Files []File
+			Query string
+		}{files, query},
+	}
+
+	tmpl.ExecuteTemplate(w, "search.html", pageData)
 }
 
 // Upload file from URL

@@ -1,0 +1,37 @@
+{{template "_header" .}}
+<h1>Search Files</h1>
+
+<form method="get" action="/search" style="margin-bottom: 30px;">
+    <input type="text" name="q" value="{{.Data.Query}}" placeholder="Search filenames (use * for wildcards)" style="width: 400px; padding: 8px; font-size: 16px;">
+    <button type="submit" style="padding: 8px 16px; font-size: 16px;">Search</button>
+</form>
+
+<div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+    <h3>Wildcard Examples:</h3>
+    <ul>
+        <li><code>*class*.jpg</code> - finds files containing "class" and ending with ".jpg"</li>
+        <li><code>photo*</code> - finds files starting with "photo"</li>
+        <li><code>*.pdf</code> - finds all PDF files</li>
+        <li><code>IMG_????_*.jpg</code> - finds files like "IMG_2023_vacation.jpg" (? matches single character)</li>
+        <li><code>*vacation*</code> - finds files containing "vacation" anywhere</li>
+    </ul>
+</div>
+
+{{if .Data.Files}}
+    <h2>Found {{len .Data.Files}} file{{if ne (len .Data.Files) 1}}s{{end}}</h2>
+    <div class="file-grid">
+        {{range .Data.Files}}
+        <div class="file-item">
+            <a href="/file/{{.ID}}">{{.Filename}}</a>
+            {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
+                <br><img src="/uploads/{{.Filename}}" style="max-width: 100%; height: auto;" />
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+{{else if .Data.Query}}
+    <p>No files found matching "<strong>{{.Data.Query}}</strong>"</p>
+    <p>Try using wildcards like <code>*{{.Data.Query}}*</code> for broader results.</p>
+{{end}}
+
+{{template "_footer"}}

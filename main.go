@@ -198,8 +198,14 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Determine filename
 	var filename string
+	urlExt := filepath.Ext(parsedURL.Path) // get original extension from URL
+
 	if customFilename != "" {
 		filename = customFilename
+		// If custom filename has no extension, append URL's extension
+		if filepath.Ext(filename) == "" && urlExt != "" {
+			filename += urlExt
+		}
 	} else {
 		// Use basename from URL as before
 		parts := strings.Split(parsedURL.Path, "/")

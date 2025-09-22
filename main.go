@@ -85,7 +85,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Use configured upload directory
 	os.MkdirAll(config.UploadDir, 0755)
 	os.MkdirAll("static", 0755)
 
@@ -215,7 +214,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 		filename = "file_from_url"
 	}
 
-	dstPath := filepath.Join("uploads", filename)
+	dstPath := filepath.Join(config.UploadDir, filename)
 
 	// Avoid overwriting existing files
 	originalFilename := filename
@@ -226,7 +225,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 		ext := filepath.Ext(originalFilename)
 		name := strings.TrimSuffix(originalFilename, ext)
 		filename = fmt.Sprintf("%s_%d%s", name, i, ext)
-		dstPath = filepath.Join("uploads", filename)
+		dstPath = filepath.Join(config.UploadDir, filename)
 	}
 
 	dst, err := os.Create(dstPath)
@@ -340,7 +339,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	file, header, _ := r.FormFile("file")
 	defer file.Close()
 
-	dstPath := filepath.Join("uploads", header.Filename)
+	dstPath := filepath.Join(config.UploadDir, header.Filename)
 	dst, _ := os.Create(dstPath)
 	defer dst.Close()
 	_, _ = dst.ReadFrom(file)
@@ -469,7 +468,7 @@ func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	}
 
 	// Check if new filename already exists
-	newPath := filepath.Join("uploads", newFilename)
+	newPath := filepath.Join(config.UploadDir, newFilename)
 	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
 		http.Error(w, "A file with that name already exists", http.StatusConflict)
 		return

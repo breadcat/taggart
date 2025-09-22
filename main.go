@@ -2,17 +2,18 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
+	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"io"
-	"net/url"
-	"encoding/json"
-	"io/ioutil"
 
 	_ "github.com/mattn/go-sqlite3"
 )

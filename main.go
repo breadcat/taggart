@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -182,14 +183,12 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 
 	customFilename := strings.TrimSpace(r.FormValue("filename"))
 
-	// Validate URL
 	parsedURL, err := url.ParseRequestURI(fileURL)
 	if err != nil || !(parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
 		http.Error(w, "Invalid URL", http.StatusBadRequest)
 		return
 	}
 
-	// Download the file
 	resp, err := http.Get(fileURL)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		http.Error(w, "Failed to download file", http.StatusBadRequest)
@@ -197,18 +196,15 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Determine filename
+	// Determine filename & extension
 	var filename string
-	urlExt := filepath.Ext(parsedURL.Path) // get original extension from URL
-
+	urlExt := filepath.Ext(parsedURL.Path)
 	if customFilename != "" {
 		filename = customFilename
-		// If custom filename has no extension, append URL's extension
 		if filepath.Ext(filename) == "" && urlExt != "" {
 			filename += urlExt
 		}
 	} else {
-		// Use basename from URL as before
 		parts := strings.Split(parsedURL.Path, "/")
 		filename = parts[len(parts)-1]
 		if filename == "" {
@@ -216,7 +212,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sanitize filename (remove potentially dangerous characters)
+	// Sanitize filename
 	filename = strings.ReplaceAll(filename, "/", "_")
 	filename = strings.ReplaceAll(filename, "\\", "_")
 	filename = strings.ReplaceAll(filename, "..", "_")
@@ -238,14 +234,54 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 		dstPath = filepath.Join(config.UploadDir, filename)
 	}
 
-	dst, err := os.Create(dstPath)
+	// Save the downloaded file temporarily
+	tmpPath := dstPath + ".tmp"
+	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
 	}
-	defer dst.Close()
+	_, err = io.Copy(tmpFile, resp.Body)
+	tmpFile.Close()
+	if err != nil {
+		os.Remove(tmpPath)
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
 
-	_, err = io.Copy(dst, resp.Body)
+	// --- Detect video codec using ffprobe ---
+	ffprobeCmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", tmpPath)
+	out, err := ffprobeCmd.Output()
+	if err != nil {
+		os.Remove(tmpPath)
+		http.Error(w, "Failed to inspect video", http.StatusInternalServerError)
+		return
+	}
+	videoCodec := strings.TrimSpace(string(out))
+
+	// If HEVC, re-encode to H.264 and warn user
+	if videoCodec == "hevc" || videoCodec == "h265" {
+		reencodedPath := dstPath // overwrite the final destination
+		warningMessage := "The uploaded video uses HEVC and will be re-encoded to H.264 for browser compatibility."
+
+		ffmpegCmd := exec.Command("ffmpeg", "-i", tmpPath, "-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", reencodedPath)
+		ffmpegCmd.Stderr = os.Stderr
+		ffmpegCmd.Stdout = os.Stdout
+		if err := ffmpegCmd.Run(); err != nil {
+			os.Remove(tmpPath)
+			http.Error(w, "Failed to re-encode HEVC video", http.StatusInternalServerError)
+			return
+		}
+		os.Remove(tmpPath)
+
+		// Optional: flash a warning message to user (could be stored in session or query param)
+		http.Redirect(w, r, fmt.Sprintf("/file/%s?warning=%s", filename, url.QueryEscape(warningMessage)), http.StatusSeeOther)
+		return
+	}
+
+	// If not HEVC, just move the temp file
+	err = os.Rename(tmpPath, dstPath)
 	if err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
@@ -349,17 +385,73 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, _ := r.FormFile("file")
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Failed to read uploaded file", http.StatusBadRequest)
+		return
+	}
 	defer file.Close()
 
+	// Save uploaded file to a temporary path first
+	tmpPath := filepath.Join(config.UploadDir, header.Filename+".tmp")
+	tmpFile, err := os.Create(tmpPath)
+	if err != nil {
+		http.Error(w, "Failed to save uploaded file", http.StatusInternalServerError)
+		return
+	}
+	_, err = io.Copy(tmpFile, file)
+	tmpFile.Close()
+	if err != nil {
+		os.Remove(tmpPath)
+		http.Error(w, "Failed to save uploaded file", http.StatusInternalServerError)
+		return
+	}
+
 	dstPath := filepath.Join(config.UploadDir, header.Filename)
-	dst, _ := os.Create(dstPath)
-	defer dst.Close()
-	_, _ = dst.ReadFrom(file)
 
-	res, _ := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", header.Filename, dstPath)
+	// --- Detect video codec using ffprobe ---
+	ffprobeCmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", tmpPath)
+	out, err := ffprobeCmd.Output()
+	if err != nil {
+		os.Remove(tmpPath)
+		http.Error(w, "Failed to inspect video", http.StatusInternalServerError)
+		return
+	}
+	videoCodec := strings.TrimSpace(string(out))
+
+	// If HEVC, re-encode to H.264 and warn user
+	finalFilename := header.Filename
+	if videoCodec == "hevc" || videoCodec == "h265" {
+		warningMessage := "The uploaded video uses HEVC and has been re-encoded to H.264 for browser compatibility."
+
+		ffmpegCmd := exec.Command("ffmpeg", "-i", tmpPath, "-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", dstPath)
+		ffmpegCmd.Stderr = os.Stderr
+		ffmpegCmd.Stdout = os.Stdout
+		if err := ffmpegCmd.Run(); err != nil {
+			os.Remove(tmpPath)
+			http.Error(w, "Failed to re-encode HEVC video", http.StatusInternalServerError)
+			return
+		}
+		os.Remove(tmpPath)
+
+		// Insert into database and redirect with warning
+		res, _ := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", finalFilename, dstPath)
+		id, _ := res.LastInsertId()
+		http.Redirect(w, r, fmt.Sprintf("/file/%d?warning=%s", id, url.QueryEscape(warningMessage)), http.StatusSeeOther)
+		return
+	}
+
+	// If not HEVC, just move temp file to final destination
+	err = os.Rename(tmpPath, dstPath)
+	if err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+
+	// Insert into database
+	res, _ := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", finalFilename, dstPath)
 	id, _ := res.LastInsertId()
-
 	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
 }
 

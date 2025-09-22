@@ -1,5 +1,4 @@
 {{template "_header" .}}
-File {{.Data.File.Filename}}
 <h2>File: {{.Data.File.Filename}}</h2>
 
 {{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
@@ -11,6 +10,46 @@ File {{.Data.File.Filename}}
 {{else}}
   <a href="/uploads/{{.Data.File.Filename}}">Download file</a><br>
 {{end}}
+
+<h3>Raw URL</h3>
+<pre id="raw-url">http://{{.IP}}:{{.Port}}/uploads/{{.Data.EscapedFilename}}</pre>
+<button id="copy-btn" style="margin-top: 5px;">Copy to Clipboard</button>
+<span id="copy-status" style="margin-left: 10px;"></span>
+
+<script>
+document.getElementById("copy-btn").addEventListener("click", function() {
+    const text = document.getElementById("raw-url").textContent.trim();
+    const status = document.getElementById("copy-status");
+
+    // Fallback approach using a temporary textarea
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed"; // prevent scrolling
+    textarea.style.left = "-9999px"; // off-screen
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    let successful = false;
+    try {
+        successful = document.execCommand("copy");
+    } catch (err) {
+        successful = false;
+    }
+
+    document.body.removeChild(textarea);
+
+    if (successful) {
+        status.textContent = "✓ Copied!";
+        status.style.color = "green";
+    } else {
+        status.textContent = "✗ Copy failed";
+        status.style.color = "red";
+    }
+});
+</script>
+
+
 
 <h3>File Actions</h3>
 <form method="post" action="/file/{{.Data.File.ID}}/rename" style="display:inline-block; margin-right: 20px;">

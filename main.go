@@ -45,6 +45,8 @@ type TagDisplay struct {
 type PageData struct {
 	Title string
 	Data  interface{}
+	IP    string
+	Port  string
 }
 
 func main() {
@@ -351,6 +353,22 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
 }
 
+// raw local IP for raw address
+func getLocalIP() (string, error) {
+    addrs, err := net.InterfaceAddrs()
+    if err != nil {
+        return "", err
+    }
+    for _, addr := range addrs {
+        if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+            if ipnet.IP.To4() != nil {
+                return ipnet.IP.String(), nil
+            }
+        }
+    }
+    return "", fmt.Errorf("no connected network interface found")
+}
+
 // Router for file operations, tag deletion, rename, and delete
 func fileRouter(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
@@ -552,13 +570,22 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pageData := PageData{
-		Title: f.Filename,
-		Data: struct {
-			File       File
-			Categories []string
-		}{f, cats},
-	}
+    // IP and port for raw URL
+    ip, _ := getLocalIP()
+    port := strings.TrimPrefix(config.ServerPort, ":")
+    // Escape filename for copy/paste
+    escaped := url.PathEscape(f.Filename)
+
+    pageData := PageData{
+        Title: f.Filename,
+        Data: struct {
+            File       File
+            Categories []string
+            EscapedFilename string
+        }{f, cats, escaped},
+        IP:   ip,
+        Port: port,
+    }
 
 	tmpl.ExecuteTemplate(w, "file.html", pageData)
 }

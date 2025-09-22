@@ -392,8 +392,20 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Save uploaded file to a temporary path first
-	tmpPath := filepath.Join(config.UploadDir, header.Filename+".tmp")
+	finalFilename := header.Filename
+	dstPath := filepath.Join(config.UploadDir, finalFilename)
+
+	// Check before creating anything
+	if _, err := os.Stat(dstPath); err == nil {
+		http.Error(w, "A file with that name already exists", http.StatusConflict)
+		return
+	} else if !os.IsNotExist(err) {
+		http.Error(w, "Failed to check for existing file", http.StatusInternalServerError)
+		return
+	}
+
+	// Save uploaded file to a temporary path
+	tmpPath := dstPath + ".tmp"
 	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
 		http.Error(w, "Failed to save uploaded file", http.StatusInternalServerError)
@@ -406,8 +418,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to save uploaded file", http.StatusInternalServerError)
 		return
 	}
-
-	dstPath := filepath.Join(config.UploadDir, header.Filename)
 
 	// --- Detect video codec using ffprobe ---
 	ffprobeCmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",

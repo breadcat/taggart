@@ -762,15 +762,29 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT f.id, f.filename, f.path FROM files f WHERE 1=1`
 	args := []interface{}{}
 	for _, f := range filters {
-		query += `
-			AND EXISTS (
-				SELECT 1
-				FROM file_tags ft
-				JOIN tags t ON ft.tag_id = t.id
-				JOIN categories c ON c.id = t.category_id
-				WHERE ft.file_id = f.id AND c.name = ? AND t.value = ?
-			)`
-		args = append(args, f.Category, f.Value)
+		if f.Value == "unassigned" {
+			// Files without any tag in this category
+			query += `
+				AND NOT EXISTS (
+					SELECT 1
+					FROM file_tags ft
+					JOIN tags t ON ft.tag_id = t.id
+					JOIN categories c ON c.id = t.category_id
+					WHERE ft.file_id = f.id AND c.name = ?
+				)`
+			args = append(args, f.Category)
+		} else {
+			// Files with this specific tag value
+			query += `
+				AND EXISTS (
+					SELECT 1
+					FROM file_tags ft
+					JOIN tags t ON ft.tag_id = t.id
+					JOIN categories c ON c.id = t.category_id
+					WHERE ft.file_id = f.id AND c.name = ? AND t.value = ?
+				)`
+			args = append(args, f.Category, f.Value)
+		}
 	}
 
 	rows, _ := db.Query(query, args...)
@@ -780,10 +794,10 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var f File
 		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		f.EscapedFilename = url.PathEscape(f.Filename)
 		files = append(files, f)
 	}
 
-	// Create title from filters
 	var titleParts []string
 	for _, f := range filters {
 		titleParts = append(titleParts, fmt.Sprintf("%s: %s", f.Category, f.Value))

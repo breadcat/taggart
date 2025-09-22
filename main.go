@@ -27,6 +27,7 @@ var (
 type File struct {
 	ID       int
 	Filename string
+	EscapedFilename string
 	Path     string
 	Tags     map[string]string
 }
@@ -275,6 +276,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var f File
 		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		f.EscapedFilename = url.PathEscape(f.Filename)
 		tagged = append(tagged, f)
 	}
 
@@ -291,6 +293,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	for untaggedRows.Next() {
 		var f File
 		untaggedRows.Scan(&f.ID, &f.Filename, &f.Path)
+		f.EscapedFilename = url.PathEscape(f.Filename)
 		untagged = append(untagged, f)
 	}
 
@@ -323,6 +326,7 @@ func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var f File
 		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		f.EscapedFilename = url.PathEscape(f.Filename)
 		files = append(files, f)
 	}
 

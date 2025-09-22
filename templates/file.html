@@ -2,13 +2,13 @@
 <h2>File: {{.Data.File.Filename}}</h2>
 
 {{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
-  <img src="/uploads/{{.Data.File.Filename}}" style="max-width:400px"><br>
+  <img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"><br>
 {{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov"}}
   <video controls width="400">
-    <source src="/uploads/{{.Data.File.Filename}}">
+    <source src="/uploads/{{.Data.EscapedFilename}}">
   </video><br>
 {{else}}
-  <a href="/uploads/{{.Data.File.Filename}}">Download file</a><br>
+  <a href="/uploads/{{.Data.EscapedFilename}}">Download file</a><br>
 {{end}}
 
 <h3>Raw URL</h3>

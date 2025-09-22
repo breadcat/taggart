@@ -6,9 +6,15 @@
   <title>{{if .Title}}{{.Title}} - Taggart{{else}}Taggart{{end}}</title>
   <style>
 /* main body styling */
-body {background: #1a1a1a; color: #cfcfcf; font-family: sans-serif}
+body {background: #1a1a1a; color: #cfcfcf; font-family: sans-serif; margin: 0}
 a {color: lightblue; text-decoration: none}
 a:hover {text-decoration: underline}
+
+/* nav menu */
+nav {display: flex; border-bottom: 1px solid gray; height: 50px}
+nav ul {flex: 1 1 auto; list-style: none; margin: 0; padding: 0}
+nav ul li {display: inline-block; margin: 0; padding: 0; border-right: 1px solid gray}
+nav ul li a, nav ul li strong {padding: 15px; display: block}
 
 /* cascading menu */
 ul.tag-menu,ul.tag-menu ul{list-style:none;margin:0;padding:0}
@@ -20,8 +26,47 @@ ul.tag-menu li ul li,ul.tag-menu li:hover>ul{display:block}
 ul.tag-menu li ul li ul{left:100%;top:0}
 ul.tag-menu li ul li a{background:#f9f9f9}
 ul.tag-menu li ul li a:hover{background:#ddd}
+
+div#searchToggleContainer {display: none; background-color: #2a2a2a}
+span#searchToggle {cursor: pointer; color: lightblue}
   </style>
 </head>
 <body>
-<p><a href="/upload">Upload new file</a> | <a href="/">Files</a> | <a href="/tags">Tags</a> | <a href="/untagged">Untagged</a> | <a href="/search">Search</a> | <a href="/settings">Settings</a></p>
+<nav>
+<ul>
+<li><strong>Taggart</strong></li>
+<li><a href="/add">Add files</a></li>
+<li><a href="/">Files</a></li>
+<li><a href="/tags">Tags</a></li>
+<li><a href="/untagged">Untagged</a></li>
+<li><a href="/settings">Settings</a></li>
+</ul>
+<div id="search-container">
+<form method="get" action="/search" style="margin-bottom: 30px;">
+    <input type="text" name="q" value="" placeholder="Search..." style="width: 400px; padding: 8px; font-size: 16px;">
+    <span id="searchToggle">?</span>
+</form>
+</div>
+</nav>
+
+  <div id="searchToggleContainer">
+    <h3>Search Examples:</h3>
+    <ul>
+        <li><code>*class*.jpg</code> - finds files containing "class" and ending with ".jpg"</li>
+        <li><code>photo*</code> - finds files starting with "photo"</li>
+        <li><code>*.pdf</code> - finds all PDF files</li>
+        <li><code>IMG_????_*.jpg</code> - finds files like "IMG_2023_vacation.jpg" (? matches single character)</li>
+        <li><code>*vacation*</code> - finds files containing "vacation" anywhere</li>
+    </ul>
+  </div>
+  <script>
+    const button = document.getElementById("searchToggle");
+    const div = document.getElementById("searchToggleContainer");
+    button.addEventListener("click", () => {
+      div.style.display = (div.style.display === "none" || div.style.display === "")
+        ? "block"
+        : "none";
+    });
+  </script>
+
 {{end}}

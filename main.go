@@ -103,7 +103,7 @@ func main() {
 	}).ParseGlob("templates/*.html"))
 
 	http.HandleFunc("/", listFilesHandler)
-	http.HandleFunc("/upload", uploadHandler)
+	http.HandleFunc("/add", uploadHandler)
 	http.HandleFunc("/upload-url", uploadFromURLHandler)
 	http.HandleFunc("/file/", fileRouter)
 	http.HandleFunc("/tags", tagsHandler)
@@ -328,14 +328,14 @@ func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl.ExecuteTemplate(w, "untagged.html", pageData)
 }
 
-// Upload a file
+// Add a file
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		pageData := PageData{
-			Title: "Upload File",
+			Title: "Add File",
 			Data:  nil,
 		}
-		tmpl.ExecuteTemplate(w, "upload.html", pageData)
+		tmpl.ExecuteTemplate(w, "add.html", pageData)
 		return
 	}
 

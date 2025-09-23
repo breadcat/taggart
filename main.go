@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -112,6 +113,7 @@ func main() {
 	http.HandleFunc("/tag/", tagFilterHandler)
 	http.HandleFunc("/untagged", untaggedFilesHandler)
 	http.HandleFunc("/search", searchHandler)
+	http.HandleFunc("/bulk-tag", bulkTagHandler)
 	http.HandleFunc("/settings", settingsHandler)
 
 	// Use configured upload directory for file serving
@@ -947,4 +949,593 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		}{config, "", ""},
 	}
 	tmpl.ExecuteTemplate(w, "settings.html", pageData)
+}
+
+// Parse file ID ranges like "1-3,6,9" into a slice of integers
+func parseFileIDRange(rangeStr string) ([]int, error) {
+	var fileIDs []int
+	parts := strings.Split(rangeStr, ",")
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		if strings.Contains(part, "-") {
+			// Handle range like "1-3"
+			rangeParts := strings.Split(part, "-")
+			if len(rangeParts) != 2 {
+				return nil, fmt.Errorf("invalid range format: %s", part)
+			}
+
+			start, err := strconv.Atoi(strings.TrimSpace(rangeParts[0]))
+			if err != nil {
+				return nil, fmt.Errorf("invalid start ID in range %s: %v", part, err)
+			}
+
+			end, err := strconv.Atoi(strings.TrimSpace(rangeParts[1]))
+			if err != nil {
+				return nil, fmt.Errorf("invalid end ID in range %s: %v", part, err)
+			}
+
+			if start > end {
+				return nil, fmt.Errorf("invalid range %s: start must be <= end", part)
+			}
+
+			for i := start; i <= end; i++ {
+				fileIDs = append(fileIDs, i)
+			}
+		} else {
+			// Handle single ID like "6"
+			id, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid file ID: %s", part)
+			}
+			fileIDs = append(fileIDs, id)
+		}
+	}
+
+	// Remove duplicates and sort
+	uniqueIDs := make(map[int]bool)
+	var result []int
+	for _, id := range fileIDs {
+		if !uniqueIDs[id] {
+			uniqueIDs[id] = true
+			result = append(result, id)
+		}
+	}
+
+	return result, nil
+}
+
+// Validate that all file IDs exist in the database
+func validateFileIDs(fileIDs []int) ([]File, error) {
+	if len(fileIDs) == 0 {
+		return nil, fmt.Errorf("no file IDs provided")
+	}
+
+	// Build placeholders for the IN clause
+	placeholders := make([]string, len(fileIDs))
+	args := make([]interface{}, len(fileIDs))
+	for i, id := range fileIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("SELECT id, filename, path FROM files WHERE id IN (%s) ORDER BY id",
+		strings.Join(placeholders, ","))
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("database error: %v", err)
+	}
+	defer rows.Close()
+
+	var files []File
+	foundIDs := make(map[int]bool)
+
+	for rows.Next() {
+		var f File
+		err := rows.Scan(&f.ID, &f.Filename, &f.Path)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning file: %v", err)
+		}
+		files = append(files, f)
+		foundIDs[f.ID] = true
+	}
+
+	// Check if any IDs were not found
+	var missingIDs []int
+	for _, id := range fileIDs {
+		if !foundIDs[id] {
+			missingIDs = append(missingIDs, id)
+		}
+	}
+
+	if len(missingIDs) > 0 {
+		return files, fmt.Errorf("file IDs not found: %v", missingIDs)
+	}
+
+	return files, nil
+}
+
+// Apply tag operations to multiple files
+func applyBulkTagOperations(fileIDs []int, category, value, operation string) error {
+	if category == "" {
+		return fmt.Errorf("category cannot be empty")
+	}
+
+	// For add operations, value is required. For remove operations, value is optional
+	if operation == "add" && value == "" {
+		return fmt.Errorf("value cannot be empty when adding tags")
+	}
+
+	// Start transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// Get or create category
+	var catID int
+	err = tx.QueryRow("SELECT id FROM categories WHERE name=?", category).Scan(&catID)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to query category: %v", err)
+	}
+
+	if catID == 0 {
+		if operation == "remove" {
+			return fmt.Errorf("cannot remove non-existent category: %s", category)
+		}
+		res, err := tx.Exec("INSERT INTO categories(name) VALUES(?)", category)
+		if err != nil {
+			return fmt.Errorf("failed to create category: %v", err)
+		}
+		cid, _ := res.LastInsertId()
+		catID = int(cid)
+	}
+
+	// Get or create tag (only needed for specific value operations)
+	var tagID int
+	if value != "" {
+		err = tx.QueryRow("SELECT id FROM tags WHERE category_id=? AND value=?", catID, value).Scan(&tagID)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("failed to query tag: %v", err)
+		}
+
+		if tagID == 0 {
+			if operation == "remove" {
+				return fmt.Errorf("cannot remove non-existent tag: %s=%s", category, value)
+			}
+			res, err := tx.Exec("INSERT INTO tags(category_id, value) VALUES(?, ?)", catID, value)
+			if err != nil {
+				return fmt.Errorf("failed to create tag: %v", err)
+			}
+			tid, _ := res.LastInsertId()
+			tagID = int(tid)
+		}
+	}
+
+	// Apply operation to all files
+	for _, fileID := range fileIDs {
+		if operation == "add" {
+			_, err = tx.Exec("INSERT OR IGNORE INTO file_tags(file_id, tag_id) VALUES (?, ?)", fileID, tagID)
+			if err != nil {
+				return fmt.Errorf("failed to add tag to file %d: %v", fileID, err)
+			}
+		} else if operation == "remove" {
+			if value != "" {
+				// Remove specific tag value
+				_, err = tx.Exec("DELETE FROM file_tags WHERE file_id=? AND tag_id=?", fileID, tagID)
+				if err != nil {
+					return fmt.Errorf("failed to remove tag from file %d: %v", fileID, err)
+				}
+			} else {
+				// Remove all tags in this category
+				_, err = tx.Exec(`
+					DELETE FROM file_tags
+					WHERE file_id=? AND tag_id IN (
+						SELECT t.id FROM tags t WHERE t.category_id=?
+					)`, fileID, catID)
+				if err != nil {
+					return fmt.Errorf("failed to remove category tags from file %d: %v", fileID, err)
+				}
+			}
+		} else {
+			return fmt.Errorf("invalid operation: %s (must be 'add' or 'remove')", operation)
+		}
+	}
+
+	// Commit transaction
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return nil
+}
+
+// Bulk tag handler
+func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		// Show bulk tag form
+
+		// Get all existing categories for the dropdown
+		catRows, _ := db.Query("SELECT name FROM categories ORDER BY name")
+		var cats []string
+		for catRows.Next() {
+			var c string
+			catRows.Scan(&c)
+			cats = append(cats, c)
+		}
+		catRows.Close()
+
+		// Get recent files for reference
+		recentRows, _ := db.Query("SELECT id, filename FROM files ORDER BY id DESC LIMIT 20")
+		var recentFiles []File
+		for recentRows.Next() {
+			var f File
+			recentRows.Scan(&f.ID, &f.Filename)
+			recentFiles = append(recentFiles, f)
+		}
+		recentRows.Close()
+
+		pageData := PageData{
+			Title: "Bulk Tag Editor",
+			Data: struct {
+				Categories  []string
+				RecentFiles []File
+				Error       string
+				Success     string
+				FormData    struct {
+					FileRange string
+					Category  string
+					Value     string
+					Operation string
+				}
+			}{
+				Categories:  cats,
+				RecentFiles: recentFiles,
+				Error:       "",
+				Success:     "",
+				FormData: struct {
+					FileRange string
+					Category  string
+					Value     string
+					Operation string
+				}{
+					FileRange: "",
+					Category:  "",
+					Value:     "",
+					Operation: "add",
+				},
+			},
+		}
+
+		tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		// Process bulk tag operation
+		rangeStr := strings.TrimSpace(r.FormValue("file_range"))
+		category := strings.TrimSpace(r.FormValue("category"))
+		value := strings.TrimSpace(r.FormValue("value"))
+		operation := r.FormValue("operation") // "add" or "remove"
+
+		// Get categories for form redisplay
+		catRows, _ := db.Query("SELECT name FROM categories ORDER BY name")
+		var cats []string
+		for catRows.Next() {
+			var c string
+			catRows.Scan(&c)
+			cats = append(cats, c)
+		}
+		catRows.Close()
+
+		// Get recent files for reference
+		recentRows, _ := db.Query("SELECT id, filename FROM files ORDER BY id DESC LIMIT 20")
+		var recentFiles []File
+		for recentRows.Next() {
+			var f File
+			recentRows.Scan(&f.ID, &f.Filename)
+			recentFiles = append(recentFiles, f)
+		}
+		recentRows.Close()
+
+		// Validate basic inputs
+		if rangeStr == "" {
+			pageData := PageData{
+				Title: "Bulk Tag Editor",
+				Data: struct {
+					Categories  []string
+					RecentFiles []File
+					Error       string
+					Success     string
+					FormData    struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}
+				}{
+					Categories:  cats,
+					RecentFiles: recentFiles,
+					Error:       "File range cannot be empty",
+					Success:     "",
+					FormData: struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}{
+						FileRange: rangeStr,
+						Category:  category,
+						Value:     value,
+						Operation: operation,
+					},
+				},
+			}
+			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			return
+		}
+
+		if category == "" {
+			pageData := PageData{
+				Title: "Bulk Tag Editor",
+				Data: struct {
+					Categories  []string
+					RecentFiles []File
+					Error       string
+					Success     string
+					FormData    struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}
+				}{
+					Categories:  cats,
+					RecentFiles: recentFiles,
+					Error:       "Category cannot be empty",
+					Success:     "",
+					FormData: struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}{
+						FileRange: rangeStr,
+						Category:  category,
+						Value:     value,
+						Operation: operation,
+					},
+				},
+			}
+			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			return
+		}
+
+		// For add operations, value is required. For remove operations, value is optional
+		if operation == "add" && value == "" {
+			pageData := PageData{
+				Title: "Bulk Tag Editor",
+				Data: struct {
+					Categories  []string
+					RecentFiles []File
+					Error       string
+					Success     string
+					FormData    struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}
+				}{
+					Categories:  cats,
+					RecentFiles: recentFiles,
+					Error:       "Value cannot be empty when adding tags",
+					Success:     "",
+					FormData: struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}{
+						FileRange: rangeStr,
+						Category:  category,
+						Value:     value,
+						Operation: operation,
+					},
+				},
+			}
+			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			return
+		}
+
+		// Parse file ID range
+		fileIDs, err := parseFileIDRange(rangeStr)
+		if err != nil {
+			pageData := PageData{
+				Title: "Bulk Tag Editor",
+				Data: struct {
+					Categories  []string
+					RecentFiles []File
+					Error       string
+					Success     string
+					FormData    struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}
+				}{
+					Categories:  cats,
+					RecentFiles: recentFiles,
+					Error:       fmt.Sprintf("Invalid file range: %v", err),
+					Success:     "",
+					FormData: struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}{
+						FileRange: rangeStr,
+						Category:  category,
+						Value:     value,
+						Operation: operation,
+					},
+				},
+			}
+			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			return
+		}
+
+		// Validate file IDs exist
+		validFiles, err := validateFileIDs(fileIDs)
+		if err != nil {
+			pageData := PageData{
+				Title: "Bulk Tag Editor",
+				Data: struct {
+					Categories  []string
+					RecentFiles []File
+					Error       string
+					Success     string
+					FormData    struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}
+				}{
+					Categories:  cats,
+					RecentFiles: recentFiles,
+					Error:       fmt.Sprintf("File validation error: %v", err),
+					Success:     "",
+					FormData: struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}{
+						FileRange: rangeStr,
+						Category:  category,
+						Value:     value,
+						Operation: operation,
+					},
+				},
+			}
+			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			return
+		}
+
+		// Apply tag operations
+		err = applyBulkTagOperations(fileIDs, category, value, operation)
+		if err != nil {
+			pageData := PageData{
+				Title: "Bulk Tag Editor",
+				Data: struct {
+					Categories  []string
+					RecentFiles []File
+					Error       string
+					Success     string
+					FormData    struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}
+				}{
+					Categories:  cats,
+					RecentFiles: recentFiles,
+					Error:       fmt.Sprintf("Tag operation failed: %v", err),
+					Success:     "",
+					FormData: struct {
+						FileRange string
+						Category  string
+						Value     string
+						Operation string
+					}{
+						FileRange: rangeStr,
+						Category:  category,
+						Value:     value,
+						Operation: operation,
+					},
+				},
+			}
+			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			return
+		}
+
+		// Success message
+		var operationText string
+		var successMsg string
+
+		if operation == "add" {
+			operationText = "added to"
+			successMsg = fmt.Sprintf("Tag '%s: %s' %s %d files",
+				category, value, operationText, len(validFiles))
+		} else {
+			if value != "" {
+				operationText = "removed from"
+				successMsg = fmt.Sprintf("Tag '%s: %s' %s %d files",
+					category, value, operationText, len(validFiles))
+			} else {
+				operationText = "removed from"
+				successMsg = fmt.Sprintf("All '%s' category tags %s %d files",
+					category, operationText, len(validFiles))
+			}
+		}
+
+		var filenames []string
+		for _, f := range validFiles {
+			filenames = append(filenames, f.Filename)
+		}
+
+		if len(filenames) <= 5 {
+			successMsg += fmt.Sprintf(": %s", strings.Join(filenames, ", "))
+		} else {
+			successMsg += fmt.Sprintf(": %s and %d more",
+				strings.Join(filenames[:5], ", "), len(filenames)-5)
+		}
+
+		pageData := PageData{
+			Title: "Bulk Tag Editor",
+			Data: struct {
+				Categories  []string
+				RecentFiles []File
+				Error       string
+				Success     string
+				FormData    struct {
+					FileRange string
+					Category  string
+					Value     string
+					Operation string
+				}
+			}{
+				Categories:  cats,
+				RecentFiles: recentFiles,
+				Error:       "",
+				Success:     successMsg,
+				FormData: struct {
+					FileRange string
+					Category  string
+					Value     string
+					Operation string
+				}{
+					FileRange: rangeStr,
+					Category:  category,
+					Value:     value,
+					Operation: operation,
+				},
+			},
+		}
+
+		tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }

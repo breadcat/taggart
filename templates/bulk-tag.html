@@ -1,0 +1,158 @@
+{{template "_header" .}}
+
+
+        <h1>{{.Title}}</h1>
+
+        {{if .Data.Error}}
+        <div class="alert alert-danger">
+            <strong>Error:</strong> {{.Data.Error}}
+        </div>
+        {{end}}
+
+        {{if .Data.Success}}
+        <div class="alert alert-success">
+            <strong>Success:</strong> {{.Data.Success}}
+        </div>
+        {{end}}
+
+        <form method="POST">
+            <div class="form-section">
+                <h3>Select Files</h3>
+
+                <div class="form-group">
+                    <label for="file_range">File ID Range:</label>
+                    <input type="text" id="file_range" name="file_range"
+                           placeholder="e.g., 1-5,8,10-12" value="{{.Data.FormData.FileRange}}" required>
+                    <div class="help-text">
+                        Specify file IDs to tag. Use ranges (1-5) and individual IDs (8) separated by commas.
+                    </div>
+                    <div class="examples">
+                        <strong>Examples:</strong><br>
+                        <code>1-5</code> - Files with IDs 1, 2, 3, 4, 5<br>
+                        <code>1,3,5</code> - Files with IDs 1, 3, and 5<br>
+                        <code>1-3,6,9-12</code> - Files with IDs 1, 2, 3, 6, 9, 10, 11, 12
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Tag Operation</h3>
+
+                <div class="form-group">
+                    <label for="category">Category:</label>
+                    <input type="text" id="category" name="category" list="categories" value="{{.Data.FormData.Category}}" required>
+                    <datalist id="categories">
+                        {{range .Data.Categories}}
+                        <option value="{{.}}">
+                        {{end}}
+                    </datalist>
+                    <div class="help-text">Choose an existing category or create a new one.</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="value">Value:</label>
+                    <input type="text" id="value" name="value" value="{{.Data.FormData.Value}}">
+                    <div class="help-text">
+                        The tag value to add or remove. <strong>Leave empty when removing to delete all values in the category.</strong>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Operation:</label>
+                    <div class="radio-group">
+                        <label>
+                            <input type="radio" name="operation" value="add" {{if eq .Data.FormData.Operation "add"}}checked{{end}}>
+                            Add tag to selected files
+                        </label>
+                        <label>
+                            <input type="radio" name="operation" value="remove" {{if eq .Data.FormData.Operation "remove"}}checked{{end}}>
+                            Remove tag(s) from selected files
+                        </label>
+                    </div>
+                    <div class="help-text">
+                        When removing: specify a value to remove just that tag, or leave value empty to remove all tags in the category.
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn">Apply Tags</button>
+            <a href="/" class="btn btn-secondary">Cancel</a>
+        </form>
+
+        <div class="reference-section">
+            <h3>Recent Files (for reference)</h3>
+            <div class="file-list">
+                {{range .Data.RecentFiles}}
+                <div class="file-item">
+                    <span class="file-id">ID {{.ID}}:</span> {{.Filename}}
+                </div>
+                {{else}}
+                <div class="file-item">No files found</div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-focus the file range input
+        document.getElementById('file_range').focus();
+
+        // Update form behavior based on operation selection
+        function updateValueField() {
+            const operation = document.querySelector('input[name="operation"]:checked').value;
+            const valueField = document.getElementById('value');
+            const valueLabel = document.querySelector('label[for="value"]');
+
+            if (operation === 'add') {
+                valueField.required = true;
+                valueLabel.innerHTML = 'Value: <span style="color: red;">*</span>';
+            } else {
+                valueField.required = false;
+                valueLabel.innerHTML = 'Value:';
+            }
+        }
+
+        // Set up event listeners for radio buttons
+        document.querySelectorAll('input[name="operation"]').forEach(radio => {
+            radio.addEventListener('change', updateValueField);
+        });
+
+        // Initialize on page load
+        updateValueField();
+
+        // Add form validation
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const fileRange = document.getElementById('file_range').value.trim();
+            const category = document.getElementById('category').value.trim();
+            const value = document.getElementById('value').value.trim();
+            const operation = document.querySelector('input[name="operation"]:checked').value;
+
+            if (!fileRange) {
+                alert('Please enter a file ID range');
+                e.preventDefault();
+                return;
+            }
+
+            if (!category) {
+                alert('Please enter a category');
+                e.preventDefault();
+                return;
+            }
+
+            // Only require value for add operations
+            if (operation === 'add' && !value) {
+                alert('Please enter a tag value when adding tags');
+                e.preventDefault();
+                return;
+            }
+
+            // Basic validation of range format
+            const rangePattern = /^[\d\s,-]+$/;
+            if (!rangePattern.test(fileRange)) {
+                alert('File range should only contain numbers, commas, dashes, and spaces');
+                e.preventDefault();
+                return;
+            }
+        });
+    </script>
+{{template "_footer"}}

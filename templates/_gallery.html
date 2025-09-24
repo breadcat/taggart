@@ -1,0 +1,9 @@
+{{define "_gallery"}}
+	<div class="gallery-item">
+	<a href="/file/{{.ID}}" title="{{.Filename}}">
+    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px"><br />
+    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}<video width="150" controls><source src="/uploads/{{.EscapedFilename}}"></video><br />
+    {{end}}
+    {{.Filename}}</a>
+    </div>
+{{end}}

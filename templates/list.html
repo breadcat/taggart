@@ -6,13 +6,9 @@
 
 <div class="gallery">
 {{range .Data.Tagged}}
-	<div class="gallery-item">
-	<a href="/file/{{.ID}}" title="{{.Filename}}">
-    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px"><br />
-    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}<video width="150" controls><source src="/uploads/{{.EscapedFilename}}"></video><br />
-    {{end}}
-    {{.Filename}}</a>
-    </div>
+
+{{template "_gallery" .}}
+
 {{else}}
   <p>No tagged files yet.</p>
 {{end}}
@@ -23,13 +19,7 @@
 <h2>Untagged Files</h2>
 <div class="gallery">
 {{range .Data.Untagged}}
-  <div class="gallery-item">
-    <a href="/file/{{.ID}}" title="{{.Filename}}">
-    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px">
-    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}<video width="150" controls><source src="/uploads/{{.EscapedFilename}}"></video>
-    {{end}}
-    {{.Filename}}</a>
-  </div>
+{{template "_gallery" .}}
 {{else}}
   <li>No untagged files.</li>
 {{end}}

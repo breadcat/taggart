@@ -1,20 +1,17 @@
 {{template "_header" .}}
 <h1>Untagged Files</h1>
 
-<ul>
+<div class="gallery">
 {{range .Data}}
-  <li>
-    <a href="/file/{{.ID}}">{{.Filename}}</a><br>
-    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
-      <img src="/uploads/{{.EscapedFilename}}" style="max-width:150px">
-    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}
-      <video width="150" controls muted>
-        <source src="/uploads/{{.EscapedFilename}}">
-      </video>
+<div class="gallery-item">
+    <a href="/file/{{.ID}}" title="{{.Filename}}">
+    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px"><br />
+    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}<video width="150" controls muted><source src="/uploads/{{.EscapedFilename}}"></video><br />
     {{end}}
-  </li>
+    {{.Filename}}</a>
+</div>
 {{else}}
-  <li>No untagged files.</li>
+<p>No untagged files.</p>
 {{end}}
-</ul>
+</div>
 {{template "_footer"}}

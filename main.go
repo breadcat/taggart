@@ -48,8 +48,10 @@ type TagDisplay struct {
 type PageData struct {
 	Title string
 	Data  interface{}
+	Query string
 	IP    string
 	Port  string
+	Files []File
 }
 
 // sanitizeFilename removes problematic characters from filenames
@@ -252,46 +254,50 @@ func main() {
 
 
 func searchHandler(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
+    query := strings.TrimSpace(r.URL.Query().Get("q"))
 
-	var files []File
-	var searchTitle string
+    var files []File
+    var searchTitle string
 
-	if query != "" {
-		// Convert wildcards to SQL LIKE pattern
-		// * becomes % and ? becomes _ (standard SQL wildcards)
-		sqlPattern := strings.ReplaceAll(query, "*", "%")
-		sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
+    if query != "" {
+        // Convert wildcards to SQL LIKE pattern
+        sqlPattern := strings.ReplaceAll(query, "*", "%")
+        sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
 
-		// Search for files matching the pattern
-		rows, err := db.Query("SELECT id, filename, path FROM files WHERE filename LIKE ? ORDER BY filename", sqlPattern)
-		if err != nil {
-			http.Error(w, "Search failed", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
+        rows, err := db.Query(
+            "SELECT id, filename, path FROM files WHERE filename LIKE ? ORDER BY filename",
+            sqlPattern,
+        )
+        if err != nil {
+            http.Error(w, "Search failed", http.StatusInternalServerError)
+            return
+        }
+        defer rows.Close()
 
-		for rows.Next() {
-			var f File
-			rows.Scan(&f.ID, &f.Filename, &f.Path)
-			files = append(files, f)
-		}
+        for rows.Next() {
+            var f File
+            if err := rows.Scan(&f.ID, &f.Filename, &f.Path); err != nil {
+                http.Error(w, "Failed to read results", http.StatusInternalServerError)
+                return
+            }
+            f.EscapedFilename = url.PathEscape(f.Filename)
+            files = append(files, f)
+        }
 
-		searchTitle = fmt.Sprintf("Search Results for: %s", query)
-	} else {
-		searchTitle = "Search Files"
-	}
+        searchTitle = fmt.Sprintf("Search Results for: %s", query)
+    } else {
+        searchTitle = "Search Files"
+    }
 
-	// Always initialize the data structure properly
-	pageData := PageData{
-		Title: searchTitle,
-		Data: struct {
-			Files []File
-			Query string
-		}{files, query},
-	}
+    pageData := PageData{
+        Title: searchTitle,
+        Query: query,
+        Files: files,
+    }
 
-	tmpl.ExecuteTemplate(w, "search.html", pageData)
+    if err := tmpl.ExecuteTemplate(w, "search.html", pageData); err != nil {
+        http.Error(w, "Template rendering failed", http.StatusInternalServerError)
+    }
 }
 
 // Upload file from URL

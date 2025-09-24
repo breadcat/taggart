@@ -1,10 +1,10 @@
 {{template "_header" .}}
 <h1>Search Files</h1>
 
-{{if .Data.Files}}
-    <h2>Found {{len .Data.Files}} file{{if ne (len .Data.Files) 1}}s{{end}}</h2>
+{{if .Files}}
+    <h2>Found {{len .Files}} file{{if ne (len .Files) 1}}s{{end}}</h2>
     <div class="file-grid">
-        {{range .Data.Files}}
+        {{range .Files}}
         <div class="file-item">
             <a href="/file/{{.ID}}">{{.Filename}}</a>
             {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
@@ -13,9 +13,9 @@
         </div>
         {{end}}
     </div>
-{{else if .Data.Query}}
-    <p>No files found matching "<strong>{{.Data.Query}}</strong>"</p>
-    <p>Try using wildcards like <code>*{{.Data.Query}}*</code> for broader results.</p>
+{{else if .Query}}
+    <p>No files found matching "<strong>{{.Query}}</strong>"</p>
+    <p>Try using wildcards like <code>*{{.Query}}*</code> for broader results.</p>
 {{end}}
 
 {{template "_footer"}}

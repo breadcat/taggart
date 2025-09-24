@@ -52,6 +52,129 @@ type PageData struct {
 	Port  string
 }
 
+// sanitizeFilename removes problematic characters from filenames
+func sanitizeFilename(filename string) string {
+	if filename == "" {
+		return "file"
+	}
+
+	filename = strings.ReplaceAll(filename, "/", "_")
+	filename = strings.ReplaceAll(filename, "\\", "_")
+	filename = strings.ReplaceAll(filename, "..", "_")
+
+	if filename == "" {
+		return "file"
+	}
+	return filename
+}
+
+// detectVideoCodec uses ffprobe to detect the video codec
+func detectVideoCodec(filePath string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", filePath)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to probe video codec: %v", err)
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
+// reencodeHEVCToH264 converts HEVC videos to H.264 for browser compatibility
+func reencodeHEVCToH264(inputPath, outputPath string) error {
+	cmd := exec.Command("ffmpeg", "-i", inputPath,
+		"-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23",
+		"-c:a", "aac", "-movflags", "+faststart", outputPath)
+
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+
+	return cmd.Run()
+}
+
+// processVideoFile handles codec detection and re-encoding if needed
+// Returns final path, warning message (if any), and error
+func processVideoFile(tempPath, finalPath string) (string, string, error) {
+	codec, err := detectVideoCodec(tempPath)
+	if err != nil {
+		return "", "", err
+	}
+
+	// If HEVC, re-encode to H.264
+	if codec == "hevc" || codec == "h265" {
+		warningMsg := "The video uses HEVC and has been re-encoded to H.264 for browser compatibility."
+
+		if err := reencodeHEVCToH264(tempPath, finalPath); err != nil {
+			return "", "", fmt.Errorf("failed to re-encode HEVC video: %v", err)
+		}
+
+		os.Remove(tempPath) // Clean up temp file
+		return finalPath, warningMsg, nil
+	}
+
+	// If not HEVC, just move temp file to final destination
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		return "", "", fmt.Errorf("failed to move file: %v", err)
+	}
+
+	return finalPath, "", nil
+}
+
+// saveFileToDatabase adds file record to database and returns the ID
+func saveFileToDatabase(filename, path string) (int64, error) {
+	res, err := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", filename, path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to save file to database: %v", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get inserted ID: %v", err)
+	}
+
+	return id, nil
+}
+
+// processUploadedFile handles the complete file processing workflow
+func processUploadedFile(src io.Reader, originalFilename string) (int64, string, string, error) {
+	// Strict duplicate check — error out if file already exists
+	finalFilename, finalPath, err := checkFileConflictStrict(originalFilename)
+	if err != nil {
+		return 0, "", "", err
+	}
+	// Create temporary file
+	tempPath := finalPath + ".tmp"
+	tempFile, err := os.Create(tempPath)
+	if err != nil {
+		return 0, "", "", fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	// Copy data to temp file
+	_, err = io.Copy(tempFile, src)
+	tempFile.Close()
+	if err != nil {
+		os.Remove(tempPath)
+		return 0, "", "", fmt.Errorf("failed to copy file data: %v", err)
+	}
+
+	// Process video (codec detection and potential re-encoding)
+	processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
+	if err != nil {
+		os.Remove(tempPath)
+		return 0, "", "", err
+	}
+
+	// Save to database
+	id, err := saveFileToDatabase(finalFilename, processedPath)
+	if err != nil {
+		os.Remove(processedPath)
+		return 0, "", "", err
+	}
+
+	return id, finalFilename, warningMsg, nil
+}
+
 func main() {
 	// Load configuration first
 	if err := loadConfig(); err != nil {
@@ -198,7 +321,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Determine filename & extension
+	// Determine filename
 	var filename string
 	urlExt := filepath.Ext(parsedURL.Path)
 	if customFilename != "" {
@@ -214,90 +337,19 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sanitize filename
-	filename = strings.ReplaceAll(filename, "/", "_")
-	filename = strings.ReplaceAll(filename, "\\", "_")
-	filename = strings.ReplaceAll(filename, "..", "_")
-	if filename == "" {
-		filename = "file_from_url"
-	}
-
-	dstPath := filepath.Join(config.UploadDir, filename)
-
-	// Avoid overwriting existing files
-	originalFilename := filename
-	for i := 1; ; i++ {
-		if _, err := os.Stat(dstPath); os.IsNotExist(err) {
-			break
-		}
-		ext := filepath.Ext(originalFilename)
-		name := strings.TrimSuffix(originalFilename, ext)
-		filename = fmt.Sprintf("%s_%d%s", name, i, ext)
-		dstPath = filepath.Join(config.UploadDir, filename)
-	}
-
-	// Save the downloaded file temporarily
-	tmpPath := dstPath + ".tmp"
-	tmpFile, err := os.Create(tmpPath)
+	// Process the uploaded file
+	id, _, warningMsg, err := processUploadedFile(resp.Body, filename)
 	if err != nil {
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
-		return
-	}
-	_, err = io.Copy(tmpFile, resp.Body)
-	tmpFile.Close()
-	if err != nil {
-		os.Remove(tmpPath)
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// --- Detect video codec using ffprobe ---
-	ffprobeCmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", tmpPath)
-	out, err := ffprobeCmd.Output()
-	if err != nil {
-		os.Remove(tmpPath)
-		http.Error(w, "Failed to inspect video", http.StatusInternalServerError)
-		return
+	// Redirect with optional warning
+	redirectURL := fmt.Sprintf("/file/%d", id)
+	if warningMsg != "" {
+		redirectURL += "?warning=" + url.QueryEscape(warningMsg)
 	}
-	videoCodec := strings.TrimSpace(string(out))
-
-	// If HEVC, re-encode to H.264 and warn user
-	if videoCodec == "hevc" || videoCodec == "h265" {
-		reencodedPath := dstPath // overwrite the final destination
-		warningMessage := "The uploaded video uses HEVC and will be re-encoded to H.264 for browser compatibility."
-
-		ffmpegCmd := exec.Command("ffmpeg", "-i", tmpPath, "-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", reencodedPath)
-		ffmpegCmd.Stderr = os.Stderr
-		ffmpegCmd.Stdout = os.Stdout
-		if err := ffmpegCmd.Run(); err != nil {
-			os.Remove(tmpPath)
-			http.Error(w, "Failed to re-encode HEVC video", http.StatusInternalServerError)
-			return
-		}
-		os.Remove(tmpPath)
-
-		// Optional: flash a warning message to user (could be stored in session or query param)
-		http.Redirect(w, r, fmt.Sprintf("/file/%s?warning=%s", filename, url.QueryEscape(warningMessage)), http.StatusSeeOther)
-		return
-	}
-
-	// If not HEVC, just move the temp file
-	err = os.Rename(tmpPath, dstPath)
-	if err != nil {
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
-		return
-	}
-
-	// Add to database
-	res, err := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", filename, dstPath)
-	if err != nil {
-		http.Error(w, "Failed to record file", http.StatusInternalServerError)
-		return
-	}
-
-	id, _ := res.LastInsertId()
-	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 // List all files, plus untagged files
@@ -394,77 +446,31 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	finalFilename := header.Filename
-	dstPath := filepath.Join(config.UploadDir, finalFilename)
-
-	// Check before creating anything
-	if _, err := os.Stat(dstPath); err == nil {
-		http.Error(w, "A file with that name already exists", http.StatusConflict)
+	// Process the uploaded file
+	id, _, warningMsg, err := processUploadedFile(file, header.Filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Redirect with optional warning
+	redirectURL := fmt.Sprintf("/file/%d", id)
+	if warningMsg != "" {
+		redirectURL += "?warning=" + url.QueryEscape(warningMsg)
+	}
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+}
+
+// checkFileConflictStrict checks if a file already exists in the upload directory.
+// It returns the final filename, full path, or an error if a duplicate exists.
+func checkFileConflictStrict(filename string) (string, string, error) {
+	finalPath := filepath.Join(config.UploadDir, filename)
+	if _, err := os.Stat(finalPath); err == nil {
+		return "", "", fmt.Errorf("a file with that name already exists")
 	} else if !os.IsNotExist(err) {
-		http.Error(w, "Failed to check for existing file", http.StatusInternalServerError)
-		return
+		return "", "", fmt.Errorf("failed to check for existing file: %v", err)
 	}
-
-	// Save uploaded file to a temporary path
-	tmpPath := dstPath + ".tmp"
-	tmpFile, err := os.Create(tmpPath)
-	if err != nil {
-		http.Error(w, "Failed to save uploaded file", http.StatusInternalServerError)
-		return
-	}
-	_, err = io.Copy(tmpFile, file)
-	tmpFile.Close()
-	if err != nil {
-		os.Remove(tmpPath)
-		http.Error(w, "Failed to save uploaded file", http.StatusInternalServerError)
-		return
-	}
-
-	// --- Detect video codec using ffprobe ---
-	ffprobeCmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", tmpPath)
-	out, err := ffprobeCmd.Output()
-	if err != nil {
-		os.Remove(tmpPath)
-		http.Error(w, "Failed to inspect video", http.StatusInternalServerError)
-		return
-	}
-	videoCodec := strings.TrimSpace(string(out))
-
-	// If HEVC, re-encode to H.264 and warn user
-	finalFilename := header.Filename
-	if videoCodec == "hevc" || videoCodec == "h265" {
-		warningMessage := "The uploaded video uses HEVC and has been re-encoded to H.264 for browser compatibility."
-
-		ffmpegCmd := exec.Command("ffmpeg", "-i", tmpPath, "-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", dstPath)
-		ffmpegCmd.Stderr = os.Stderr
-		ffmpegCmd.Stdout = os.Stdout
-		if err := ffmpegCmd.Run(); err != nil {
-			os.Remove(tmpPath)
-			http.Error(w, "Failed to re-encode HEVC video", http.StatusInternalServerError)
-			return
-		}
-		os.Remove(tmpPath)
-
-		// Insert into database and redirect with warning
-		res, _ := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", finalFilename, dstPath)
-		id, _ := res.LastInsertId()
-		http.Redirect(w, r, fmt.Sprintf("/file/%d?warning=%s", id, url.QueryEscape(warningMessage)), http.StatusSeeOther)
-		return
-	}
-
-	// If not HEVC, just move temp file to final destination
-	err = os.Rename(tmpPath, dstPath)
-	if err != nil {
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
-		return
-	}
-
-	// Insert into database
-	res, _ := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", finalFilename, dstPath)
-	id, _ := res.LastInsertId()
-	http.Redirect(w, r, fmt.Sprintf("/file/%d", id), http.StatusSeeOther)
+	return filename, finalPath, nil
 }
 
 // raw local IP for raw address
@@ -582,9 +588,7 @@ func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	}
 
 	// Sanitize filename
-	newFilename = strings.ReplaceAll(newFilename, "/", "_")
-	newFilename = strings.ReplaceAll(newFilename, "\\", "_")
-	newFilename = strings.ReplaceAll(newFilename, "..", "_")
+	newFilename = sanitizeFilename(newFilename)
 
 	// Get current file info
 	var currentFile File
@@ -1245,8 +1249,8 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		recentRows.Close()
 
-		// Validate basic inputs
-		if rangeStr == "" {
+		// Helper function to create error response
+		createErrorResponse := func(errorMsg string) {
 			pageData := PageData{
 				Title: "Bulk Tag Editor",
 				Data: struct {
@@ -1263,7 +1267,7 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 				}{
 					Categories:  cats,
 					RecentFiles: recentFiles,
-					Error:       "File range cannot be empty",
+					Error:       errorMsg,
 					Success:     "",
 					FormData: struct {
 						FileRange string
@@ -1279,193 +1283,43 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+		}
+
+		// Validate basic inputs
+		if rangeStr == "" {
+			createErrorResponse("File range cannot be empty")
 			return
 		}
 
 		if category == "" {
-			pageData := PageData{
-				Title: "Bulk Tag Editor",
-				Data: struct {
-					Categories  []string
-					RecentFiles []File
-					Error       string
-					Success     string
-					FormData    struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}
-				}{
-					Categories:  cats,
-					RecentFiles: recentFiles,
-					Error:       "Category cannot be empty",
-					Success:     "",
-					FormData: struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}{
-						FileRange: rangeStr,
-						Category:  category,
-						Value:     value,
-						Operation: operation,
-					},
-				},
-			}
-			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			createErrorResponse("Category cannot be empty")
 			return
 		}
 
 		// For add operations, value is required. For remove operations, value is optional
 		if operation == "add" && value == "" {
-			pageData := PageData{
-				Title: "Bulk Tag Editor",
-				Data: struct {
-					Categories  []string
-					RecentFiles []File
-					Error       string
-					Success     string
-					FormData    struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}
-				}{
-					Categories:  cats,
-					RecentFiles: recentFiles,
-					Error:       "Value cannot be empty when adding tags",
-					Success:     "",
-					FormData: struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}{
-						FileRange: rangeStr,
-						Category:  category,
-						Value:     value,
-						Operation: operation,
-					},
-				},
-			}
-			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			createErrorResponse("Value cannot be empty when adding tags")
 			return
 		}
 
 		// Parse file ID range
 		fileIDs, err := parseFileIDRange(rangeStr)
 		if err != nil {
-			pageData := PageData{
-				Title: "Bulk Tag Editor",
-				Data: struct {
-					Categories  []string
-					RecentFiles []File
-					Error       string
-					Success     string
-					FormData    struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}
-				}{
-					Categories:  cats,
-					RecentFiles: recentFiles,
-					Error:       fmt.Sprintf("Invalid file range: %v", err),
-					Success:     "",
-					FormData: struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}{
-						FileRange: rangeStr,
-						Category:  category,
-						Value:     value,
-						Operation: operation,
-					},
-				},
-			}
-			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			createErrorResponse(fmt.Sprintf("Invalid file range: %v", err))
 			return
 		}
 
 		// Validate file IDs exist
 		validFiles, err := validateFileIDs(fileIDs)
 		if err != nil {
-			pageData := PageData{
-				Title: "Bulk Tag Editor",
-				Data: struct {
-					Categories  []string
-					RecentFiles []File
-					Error       string
-					Success     string
-					FormData    struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}
-				}{
-					Categories:  cats,
-					RecentFiles: recentFiles,
-					Error:       fmt.Sprintf("File validation error: %v", err),
-					Success:     "",
-					FormData: struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}{
-						FileRange: rangeStr,
-						Category:  category,
-						Value:     value,
-						Operation: operation,
-					},
-				},
-			}
-			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			createErrorResponse(fmt.Sprintf("File validation error: %v", err))
 			return
 		}
 
 		// Apply tag operations
 		err = applyBulkTagOperations(fileIDs, category, value, operation)
 		if err != nil {
-			pageData := PageData{
-				Title: "Bulk Tag Editor",
-				Data: struct {
-					Categories  []string
-					RecentFiles []File
-					Error       string
-					Success     string
-					FormData    struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}
-				}{
-					Categories:  cats,
-					RecentFiles: recentFiles,
-					Error:       fmt.Sprintf("Tag operation failed: %v", err),
-					Success:     "",
-					FormData: struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}{
-						FileRange: rangeStr,
-						Category:  category,
-						Value:     value,
-						Operation: operation,
-					},
-				},
-			}
-			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			createErrorResponse(fmt.Sprintf("Tag operation failed: %v", err))
 			return
 		}
 

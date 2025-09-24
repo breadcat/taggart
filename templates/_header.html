@@ -43,9 +43,7 @@ span#searchToggle {cursor: pointer; color: lightblue}
 <li><a href="/settings">Settings</a></li>
 </ul>
 <div id="search-container">
-<form method="get" action="/search" style="margin-bottom: 30px;">
-    <input type="text" name="q" value="{{.Query}}" placeholder="Search..." style="width: 400px; padding: 8px; font-size: 16px;">
-    <span id="searchToggle">?</span>
+<form method="get" action="/search"><input type="text" name="q" value="{{.Query}}" placeholder="Search..." style="width: 400px; padding: 8px; font-size: 16px;"><span id="searchToggle">[?]</span>
 </form>
 </div>
 </nav>

@@ -2,7 +2,7 @@
 <h2>File: {{.Data.File.Filename}}</h2>
 
 {{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
-  <img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"><br>
+  <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"></a><br>
 {{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov"}}
   <video controls width="400" muted>
     <source src="/uploads/{{.Data.EscapedFilename}}">

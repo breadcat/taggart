@@ -12,4 +12,10 @@
   <button type="submit">Add File</button>
 </form>
 
+<h2>Upload from yt-dlp</h2>
+<form action="/add-yt" method="POST">
+    <label for="url">Video URL:</label>
+    <input type="text" name="url" id="url" required>
+    <button type="submit">Add Video</button>
+</form>
 {{template "_footer"}}

@@ -230,6 +230,7 @@ func main() {
 
 	http.HandleFunc("/", listFilesHandler)
 	http.HandleFunc("/add", uploadHandler)
+	http.HandleFunc("/add-yt", ytdlpHandler)
 	http.HandleFunc("/upload-url", uploadFromURLHandler)
 	http.HandleFunc("/file/", fileRouter)
 	http.HandleFunc("/tags", tagsHandler)
@@ -953,6 +954,74 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		}{config, "", ""},
 	}
 	tmpl.ExecuteTemplate(w, "settings.html", pageData)
+}
+
+// yt-dlp Handler
+func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Redirect(w, r, "/upload", http.StatusSeeOther)
+        return
+    }
+
+    videoURL := r.FormValue("url")
+    if videoURL == "" {
+        http.Error(w, "No URL provided", http.StatusBadRequest)
+        return
+    }
+
+    // Step 1: Get the expected filename first
+    outTemplate := filepath.Join(config.UploadDir, "%(title)s.%(ext)s")
+    filenameCmd := exec.Command("yt-dlp", "-f", "mp4", "-o", outTemplate, "--get-filename", videoURL)
+    filenameBytes, err := filenameCmd.Output()
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Failed to get filename: %v", err), http.StatusInternalServerError)
+        return
+    }
+    expectedFilename := strings.TrimSpace(string(filenameBytes))
+
+	// Enforce strict duplicate check
+	finalFilename, finalPath, err := checkFileConflictStrict(expectedFilename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	finalTemplate := filepath.Join(config.UploadDir, finalFilename)
+
+    // Step 2: Download with yt-dlp to the final path
+    downloadCmd := exec.Command("yt-dlp", "-f", "mp4", "-o", finalTemplate, videoURL)
+    downloadCmd.Stdout = os.Stdout
+    downloadCmd.Stderr = os.Stderr
+    if err := downloadCmd.Run(); err != nil {
+        http.Error(w, fmt.Sprintf("Failed to download video: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Step 3: Process video (codec detection and potential re-encoding)
+    // Create a temporary path for processing
+    tempPath := finalPath + ".tmp"
+    os.Rename(finalPath, tempPath) // Move downloaded file to temp location
+
+    processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
+    if err != nil {
+        os.Remove(tempPath) // Clean up
+        http.Error(w, fmt.Sprintf("Failed to process video: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Step 4: Save to database
+    id, err := saveFileToDatabase(finalFilename, processedPath)
+    if err != nil {
+        os.Remove(processedPath)
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Step 5: Redirect with optional warning
+    redirectURL := fmt.Sprintf("/file/%d", id)
+    if warningMsg != "" {
+        redirectURL += "?warning=" + url.QueryEscape(warningMsg)
+    }
+    http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 // Parse file ID ranges like "1-3,6,9" into a slice of integers

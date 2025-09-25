@@ -13,17 +13,17 @@
 
 <script src="/static/timestamps.js" defer></script>
 
-<div class="description-section" style="margin: 20px 0; padding: 15px;">
-    <h3 style="margin-top: 0;">Description</h3>
+<div class="description-section">
+    <h3>Description</h3>
 
     <!-- Display Mode -->
     <div id="description-display" data-original-description="{{.Data.File.Description}}">
         {{if .Data.File.Description}}
-            <div id="current-description" style="background: #f9f9f9; padding: 10px; border-radius: 3px; margin-bottom: 10px; white-space: pre-wrap; min-height: 20px;">{{.Data.File.Description}}</div>
+            <div id="current-description" >{{.Data.File.Description}}</div>
         {{else}}
-            <div id="no-description" style="color: #666; font-style: italic; margin-bottom: 10px; padding: 10px;">No description set</div>
+            <div id="no-description">No description set</div>
         {{end}}
-        <button id="edit-description-btn" onclick="toggleDescriptionEdit()" style="background: #007cba; color: white; padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 14px;">
+        <button id="edit-description-btn" onclick="toggleDescriptionEdit()">
             {{if .Data.File.Description}}Edit Description{{else}}Add Description{{end}}
         </button>
     </div>
@@ -37,14 +37,13 @@
                     id="description-textarea"
                     name="description"
                     rows="6"
-                    style="width: 100%; max-width: 600px; padding: 8px; border: 1px solid #ccc; border-radius: 3px; font-family: inherit; resize: vertical;"
                     maxlength="2048"
                     placeholder="Enter description..."
                 >{{.Data.File.Description}}</textarea>
             </div>
             <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                <input type="submit" value="Save Description" style="background: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;">
-                <button type="button" onclick="cancelDescriptionEdit()" style="background: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;">Cancel</button>
+                <input class="description-save" type="submit" value="Save Description">
+                <button class="description-cancel" type="button" onclick="cancelDescriptionEdit()">Cancel</button>
             </div>
         </form>
     </div>

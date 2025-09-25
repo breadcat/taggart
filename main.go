@@ -983,18 +983,20 @@ func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, fmt.Sprintf("Failed to get filename: %v", err), http.StatusInternalServerError)
         return
     }
-    expectedFilename := strings.TrimSpace(string(filenameBytes))
+    expectedFullPath := strings.TrimSpace(string(filenameBytes))
 
-	// Enforce strict duplicate check
-	finalFilename, finalPath, err := checkFileConflictStrict(expectedFilename)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-	finalTemplate := filepath.Join(config.UploadDir, finalFilename)
+    // Extract just the filename from the full path
+    expectedFilename := filepath.Base(expectedFullPath)
 
-    // Step 2: Download with yt-dlp to the final path
-    downloadCmd := exec.Command("yt-dlp", "-f", "mp4", "-o", finalTemplate, videoURL)
+    // Enforce strict duplicate check
+    finalFilename, finalPath, err := checkFileConflictStrict(expectedFilename)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusConflict)
+        return
+    }
+
+    // Step 2: Download with yt-dlp using the full output template
+    downloadCmd := exec.Command("yt-dlp", "-f", "mp4", "-o", outTemplate, videoURL)
     downloadCmd.Stdout = os.Stdout
     downloadCmd.Stderr = os.Stderr
     if err := downloadCmd.Run(); err != nil {
@@ -1002,10 +1004,21 @@ func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Step 3: Process video (codec detection and potential re-encoding)
+    // Step 3: The file should now be at expectedFullPath, move it to finalPath if different
+    if expectedFullPath != finalPath {
+        if err := os.Rename(expectedFullPath, finalPath); err != nil {
+            http.Error(w, fmt.Sprintf("Failed to move downloaded file: %v", err), http.StatusInternalServerError)
+            return
+        }
+    }
+
+    // Step 4: Process video (codec detection and potential re-encoding)
     // Create a temporary path for processing
     tempPath := finalPath + ".tmp"
-    os.Rename(finalPath, tempPath) // Move downloaded file to temp location
+    if err := os.Rename(finalPath, tempPath); err != nil {
+        http.Error(w, fmt.Sprintf("Failed to create temp file for processing: %v", err), http.StatusInternalServerError)
+        return
+    }
 
     processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
     if err != nil {
@@ -1014,7 +1027,7 @@ func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Step 4: Save to database
+    // Step 5: Save to database
     id, err := saveFileToDatabase(finalFilename, processedPath)
     if err != nil {
         os.Remove(processedPath)
@@ -1022,7 +1035,7 @@ func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Step 5: Redirect with optional warning
+    // Step 6: Redirect with optional warning
     redirectURL := fmt.Sprintf("/file/%d", id)
     if warningMsg != "" {
         redirectURL += "?warning=" + url.QueryEscape(warningMsg)

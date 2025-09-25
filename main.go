@@ -31,6 +31,7 @@ type File struct {
 	Filename string
 	EscapedFilename string
 	Path     string
+	Description	string
 	Tags     map[string]string
 }
 
@@ -125,7 +126,7 @@ func processVideoFile(tempPath, finalPath string) (string, string, error) {
 
 // saveFileToDatabase adds file record to database and returns the ID
 func saveFileToDatabase(filename, path string) (int64, error) {
-	res, err := db.Exec("INSERT INTO files (filename, path) VALUES (?, ?)", filename, path)
+	res, err := db.Exec("INSERT INTO files (filename, path, description) VALUES (?, ?, '')", filename, path)
 	if err != nil {
 		return 0, fmt.Errorf("failed to save file to database: %v", err)
 	}
@@ -194,7 +195,8 @@ func main() {
 	CREATE TABLE IF NOT EXISTS files (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		filename TEXT,
-		path TEXT
+		path TEXT,
+		description TEXT DEFAULT ''
 	);
 	CREATE TABLE IF NOT EXISTS categories (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,6 +216,12 @@ func main() {
 	`)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Add description column if it doesn't exist (for existing databases)
+	_, err = db.Exec(`ALTER TABLE files ADD COLUMN description TEXT DEFAULT ''`)
+	if err != nil {
+		log.Printf("Note: Could not add description column (may already exist): %v", err)
 	}
 
 	os.MkdirAll(config.UploadDir, 0755)
@@ -265,8 +273,8 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
         sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
 
         rows, err := db.Query(
-            "SELECT id, filename, path FROM files WHERE filename LIKE ? ORDER BY filename",
-            sqlPattern,
+            "SELECT id, filename, path, COALESCE(description, '') as description FROM files WHERE filename LIKE ? OR description LIKE ? ORDER BY filename",
+            sqlPattern, sqlPattern,
         )
         if err != nil {
             http.Error(w, "Search failed", http.StatusInternalServerError)
@@ -276,7 +284,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 
         for rows.Next() {
             var f File
-            if err := rows.Scan(&f.ID, &f.Filename, &f.Path); err != nil {
+            if err := rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description); err != nil {
                 http.Error(w, "Failed to read results", http.StatusInternalServerError)
                 return
             }
@@ -363,7 +371,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	// Tagged files
 	rows, _ := db.Query(`
-		SELECT DISTINCT f.id, f.filename, f.path
+		SELECT DISTINCT f.id, f.filename, f.path, COALESCE(f.description, '') as description
 		FROM files f
 		JOIN file_tags ft ON ft.file_id = f.id
 		ORDER BY f.id DESC
@@ -372,14 +380,14 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	var tagged []File
 	for rows.Next() {
 		var f File
-		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
 		f.EscapedFilename = url.PathEscape(f.Filename)
 		tagged = append(tagged, f)
 	}
 
 	// Untagged files
 	untaggedRows, _ := db.Query(`
-		SELECT f.id, f.filename, f.path
+		SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description
 		FROM files f
 		LEFT JOIN file_tags ft ON ft.file_id = f.id
 		WHERE ft.file_id IS NULL
@@ -389,7 +397,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	var untagged []File
 	for untaggedRows.Next() {
 		var f File
-		untaggedRows.Scan(&f.ID, &f.Filename, &f.Path)
+		untaggedRows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
 		f.EscapedFilename = url.PathEscape(f.Filename)
 		untagged = append(untagged, f)
 	}
@@ -408,7 +416,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 // Show untagged files at /untagged
 func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
 	rows, _ := db.Query(`
-		SELECT f.id, f.filename, f.path
+		SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description
 		FROM files f
 		WHERE NOT EXISTS (
 			SELECT 1
@@ -422,7 +430,7 @@ func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
 	var files []File
 	for rows.Next() {
 		var f File
-		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
 		f.EscapedFilename = url.PathEscape(f.Filename)
 		files = append(files, f)
 	}
@@ -646,7 +654,11 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var f File
-	db.QueryRow("SELECT id, filename, path FROM files WHERE id=?", idStr).Scan(&f.ID, &f.Filename, &f.Path)
+	err := db.QueryRow("SELECT id, filename, path, COALESCE(description, '') as description FROM files WHERE id=?", idStr).Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
 
 	f.Tags = make(map[string]string)
 	rows, _ := db.Query(`
@@ -672,6 +684,24 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	catRows.Close()
 
 	if r.Method == http.MethodPost {
+		// Handle description update
+		if r.FormValue("action") == "update_description" {
+			description := r.FormValue("description")
+			// Limit description to 2KB (2048 characters)
+			if len(description) > 2048 {
+				description = description[:2048]
+			}
+
+			_, err := db.Exec("UPDATE files SET description = ? WHERE id = ?", description, f.ID)
+			if err != nil {
+				http.Error(w, "Failed to update description", http.StatusInternalServerError)
+				return
+			}
+			http.Redirect(w, r, "/file/"+idStr, http.StatusSeeOther)
+			return
+		}
+
+		// Handle tag addition (existing functionality)
 		cat := r.FormValue("category")
 		val := r.FormValue("value")
 		if cat != "" && val != "" {
@@ -704,8 +734,8 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     pageData := PageData{
         Title: f.Filename,
         Data: struct {
-            File       File
-            Categories []string
+            File            File
+            Categories      []string
             EscapedFilename string
         }{f, cats, escaped},
         IP:   ip,
@@ -782,7 +812,7 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		filters = append(filters, filter{pathParts[i], pathParts[i+1]})
 	}
 
-	query := `SELECT f.id, f.filename, f.path FROM files f WHERE 1=1`
+	query := `SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description FROM files f WHERE 1=1`
 	args := []interface{}{}
 	for _, f := range filters {
 		if f.Value == "unassigned" {
@@ -816,7 +846,7 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	var files []File
 	for rows.Next() {
 		var f File
-		rows.Scan(&f.ID, &f.Filename, &f.Path)
+		rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
 		f.EscapedFilename = url.PathEscape(f.Filename)
 		files = append(files, f)
 	}

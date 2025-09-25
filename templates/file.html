@@ -11,6 +11,88 @@
   <a href="/uploads/{{.Data.EscapedFilename}}">Download file</a><br>
 {{end}}
 
+<div class="description-section" style="margin: 20px 0; padding: 15px;">
+    <h3 style="margin-top: 0;">Description</h3>
+
+    <!-- Display Mode -->
+    <div id="description-display">
+        {{if .Data.File.Description}}
+            <div class="current-description" style="background: #f9f9f9; padding: 10px; border-radius: 3px; margin-bottom: 10px; white-space: pre-wrap; min-height: 20px;">{{.Data.File.Description}}</div>
+        {{else}}
+            <div class="no-description" style="color: #666; font-style: italic; margin-bottom: 10px; padding: 10px;">No description set</div>
+        {{end}}
+        <button id="edit-description-btn" onclick="toggleDescriptionEdit()" style="background: #007cba; color: white; padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 14px;">
+            {{if .Data.File.Description}}Edit Description{{else}}Add Description{{end}}
+        </button>
+    </div>
+
+    <!-- Edit Mode (initially hidden) -->
+    <div id="description-edit" style="display: none;">
+        <form method="post">
+            <input type="hidden" name="action" value="update_description">
+            <div>
+                <textarea
+                    id="description-textarea"
+                    name="description"
+                    rows="6"
+                    style="width: 100%; max-width: 600px; padding: 8px; border: 1px solid #ccc; border-radius: 3px; font-family: inherit; resize: vertical;"
+                    maxlength="2048"
+                    placeholder="Enter description..."
+                >{{.Data.File.Description}}</textarea>
+            </div>
+            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+                <input type="submit" value="Save Description" style="background: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;">
+                <button type="button" onclick="cancelDescriptionEdit()" style="background: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleDescriptionEdit() {
+    const displayDiv = document.getElementById('description-display');
+    const editDiv = document.getElementById('description-edit');
+
+    displayDiv.style.display = 'none';
+    editDiv.style.display = 'block';
+
+    // Focus the textarea and update character count
+    const textarea = document.getElementById('description-textarea');
+    textarea.focus();
+
+    // Move cursor to end of text if there's existing content
+    if (textarea.value) {
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+}
+
+function cancelDescriptionEdit() {
+    const displayDiv = document.getElementById('description-display');
+    const editDiv = document.getElementById('description-edit');
+    const textarea = document.getElementById('description-textarea');
+
+    // Reset textarea to original value
+    textarea.value = {{if .Data.File.Description}}`{{.Data.File.Description}}`{{else}}``{{end}};
+
+    displayDiv.style.display = 'block';
+    editDiv.style.display = 'none';
+}
+
+// Auto-resize textarea as content changes
+document.addEventListener('DOMContentLoaded', function() {
+    const textarea = document.getElementById('description-textarea');
+    if (textarea) {
+        textarea.addEventListener('input', function() {
+            // Reset height to auto to get the correct scrollHeight
+            this.style.height = 'auto';
+            // Set the height to match the content, with a minimum of 6 rows
+            const minHeight = parseInt(getComputedStyle(this).lineHeight) * 6;
+            this.style.height = Math.max(minHeight, this.scrollHeight) + 'px';
+        });
+    }
+});
+</script>
+
 <h3>Raw URL</h3>
 <pre id="raw-url">http://{{.IP}}:{{.Port}}/uploads/{{.Data.EscapedFilename}}</pre>
 <button id="copy-btn" style="margin-top: 5px;">Copy to Clipboard</button>

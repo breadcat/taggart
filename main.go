@@ -1007,7 +1007,7 @@ func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
 
     // Step 1: Get the expected filename first
     outTemplate := filepath.Join(config.UploadDir, "%(title)s.%(ext)s")
-    filenameCmd := exec.Command("yt-dlp", "-f", "mp4", "-o", outTemplate, "--get-filename", videoURL)
+    filenameCmd := exec.Command("yt-dlp", "--playlist-items", "1", "-f", "mp4", "-o", outTemplate, "--get-filename", videoURL)
     filenameBytes, err := filenameCmd.Output()
     if err != nil {
         http.Error(w, fmt.Sprintf("Failed to get filename: %v", err), http.StatusInternalServerError)
@@ -1026,7 +1026,7 @@ func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Step 2: Download with yt-dlp using the full output template
-    downloadCmd := exec.Command("yt-dlp", "-f", "mp4", "-o", outTemplate, videoURL)
+    downloadCmd := exec.Command("yt-dlp", "--playlist-items", "1", "-f", "mp4", "-o", outTemplate, videoURL)
     downloadCmd.Stdout = os.Stdout
     downloadCmd.Stderr = os.Stderr
     if err := downloadCmd.Run(); err != nil {

@@ -218,12 +218,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Add description column if it doesn't exist (for existing databases)
-	_, err = db.Exec(`ALTER TABLE files ADD COLUMN description TEXT DEFAULT ''`)
-	if err != nil {
-		log.Printf("Note: Could not add description column (may already exist): %v", err)
-	}
-
 	os.MkdirAll(config.UploadDir, 0755)
 	os.MkdirAll("static", 0755)
 

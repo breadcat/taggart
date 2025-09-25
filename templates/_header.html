@@ -12,11 +12,27 @@
 <li><strong>&num;Taggart</strong></li>
 <li><a href="/add">Add files</a></li>
 <li><a href="/">Files</a></li>
-<li><a href="/tags">Tags</a></li>
-<li><a href="/bulk-tag">Bulk Tag Editor</a></li>
-<li><a href="/untagged">Untagged</a></li>
+<li>
+  <a href="/tags">Tags</a>
+  <ul class="sub-menu">
+    {{range $cat, $tags := .Tags}}
+      <li>
+        <a href="#">{{$cat}}</a>
+        <ul>
+          {{range $tags}}
+            <li><a href="/tag/{{$cat}}/{{.Value}}">{{.Value}} ({{.Count}})</a></li>
+          {{end}}
+          <li><a href="/tag/{{$cat}}/unassigned">Unassigned</a></li>
+        </ul>
+      </li>
+    {{end}}
+    <li><a href="/bulk-tag">Bulk Editor</a></li>
+    <li><a href="/untagged">Untagged</a></li>
+  </ul>
+</li>
 <li><a href="/settings">Settings</a></li>
 </ul>
+
 <div id="search-container">
 <form method="get" action="/search"><input type="text" name="q" value="{{.Query}}" placeholder="Search..."><span id="searchToggle">[?]</span>
 </form>

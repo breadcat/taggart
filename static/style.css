@@ -1,31 +1,31 @@
 /* main body styling */
-body, div#search-container form input {background: #1a1a1a; color: #cfcfcf; font-family: sans-serif; margin: 0}
-a {color: lightblue; text-decoration: none}
-a:hover {text-decoration: underline}
+body,div#search-container form input{background:#1a1a1a;color:#cfcfcf;font-family:sans-serif;margin:0}
+a{color:#add8e6;text-decoration:none}
+a:hover{text-decoration:underline}
 
 /* nav menu */
-nav {display: flex; border-bottom: 1px solid gray; height: 50px}
-nav ul {flex: 1 1 auto; list-style: none; margin: 0; padding: 0}
-nav ul li {display: inline-block; margin: 0; padding: 0; border-right: 1px solid gray}
-nav ul li a, nav ul li strong {padding: 15px; display: block}
+nav{display:flex;border-bottom:1px solid gray;height:50px}
+nav ul li a,nav ul li strong{padding:15px;display:block}
+nav ul li a:hover{background-color:#2a2a2a}
+nav ul li ul li a,nav>ul>li>a{display:block;padding:.5em 1em;text-decoration:none}
+nav ul li ul li a{color:#add8e6;background:#1a1a1a}
+nav ul li ul li ul li a{white-space:nowrap}
+nav ul li ul li ul{top:0;left:100%;display:none}
+nav ul li ul li,nav>ul>li{position:relative}
+nav ul li ul li:hover>ul,nav ul li:hover>ul{display:block}
+nav ul li ul{display:none;position:absolute;top:100%;left:0;z-index:1000;padding:0}
+nav ul li{border-right:1px solid gray}
+nav ul,nav ul li{margin:0;padding:0}
+nav ul{flex:1 1 auto;list-style:none}
+nav ul.sub-menu li a:first-letter{text-transform:capitalize}
 
 /* search bar */
 div#search-container form input {border: 1px solid gray; padding: 8px; margin-top: 7px}
-span#searchToggle {cursor: pointer; color: lightblue; padding: 8px}
-div#searchToggleContainer {display: none; background-color: #2a2a2a}
+div#search-container form input{border:1px solid gray;padding:8px;margin-top:7px}
+div#searchToggleContainer{display:none;background-color:#2a2a2a}
+span#searchToggle{cursor:pointer;color:#add8e6;padding:8px}
 
 /* gallery styling */
-div.gallery {}
-div.gallery-item {display: inline-block; width: 250px}
-div.gallery-item a {display: inline-block; overflow: hidden; text-overflow:ellipsis; width: 250px}
-
-/* cascading menu */
-ul.tag-menu,ul.tag-menu ul{list-style:none;margin:0;padding:0}
-ul.tag-menu li{position:relative}
-ul.tag-menu>li{display:inline-block;margin-right:20px}
-ul.tag-menu li a{text-decoration:none;padding:5px 10px;display:block;background:#eee;color:#333}
-ul.tag-menu li ul{display:none;position:absolute;top:100%;left:0;min-width:150px;z-index:1000}
-ul.tag-menu li ul li,ul.tag-menu li:hover>ul{display:block}
-ul.tag-menu li ul li ul{left:100%;top:0}
-ul.tag-menu li ul li a{background:#f9f9f9}
-ul.tag-menu li ul li a:hover{background:#ddd}
+div.gallery-item a{overflow:hidden;text-overflow:ellipsis}
+div.gallery-item,div.gallery-item a,nav ul li,nav>ul>li{display:inline-block}
+div.gallery-item,div.gallery-item a{width:250px;display:inline-block}

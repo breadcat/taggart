@@ -53,129 +53,7 @@ type PageData struct {
 	IP    string
 	Port  string
 	Files []File
-}
-
-// sanitizeFilename removes problematic characters from filenames
-func sanitizeFilename(filename string) string {
-	if filename == "" {
-		return "file"
-	}
-
-	filename = strings.ReplaceAll(filename, "/", "_")
-	filename = strings.ReplaceAll(filename, "\\", "_")
-	filename = strings.ReplaceAll(filename, "..", "_")
-
-	if filename == "" {
-		return "file"
-	}
-	return filename
-}
-
-// detectVideoCodec uses ffprobe to detect the video codec
-func detectVideoCodec(filePath string) (string, error) {
-	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", filePath)
-
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to probe video codec: %v", err)
-	}
-
-	return strings.TrimSpace(string(out)), nil
-}
-
-// reencodeHEVCToH264 converts HEVC videos to H.264 for browser compatibility
-func reencodeHEVCToH264(inputPath, outputPath string) error {
-	cmd := exec.Command("ffmpeg", "-i", inputPath,
-		"-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23",
-		"-c:a", "aac", "-movflags", "+faststart", outputPath)
-
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-
-	return cmd.Run()
-}
-
-// processVideoFile handles codec detection and re-encoding if needed
-// Returns final path, warning message (if any), and error
-func processVideoFile(tempPath, finalPath string) (string, string, error) {
-	codec, err := detectVideoCodec(tempPath)
-	if err != nil {
-		return "", "", err
-	}
-
-	// If HEVC, re-encode to H.264
-	if codec == "hevc" || codec == "h265" {
-		warningMsg := "The video uses HEVC and has been re-encoded to H.264 for browser compatibility."
-
-		if err := reencodeHEVCToH264(tempPath, finalPath); err != nil {
-			return "", "", fmt.Errorf("failed to re-encode HEVC video: %v", err)
-		}
-
-		os.Remove(tempPath) // Clean up temp file
-		return finalPath, warningMsg, nil
-	}
-
-	// If not HEVC, just move temp file to final destination
-	if err := os.Rename(tempPath, finalPath); err != nil {
-		return "", "", fmt.Errorf("failed to move file: %v", err)
-	}
-
-	return finalPath, "", nil
-}
-
-// saveFileToDatabase adds file record to database and returns the ID
-func saveFileToDatabase(filename, path string) (int64, error) {
-	res, err := db.Exec("INSERT INTO files (filename, path, description) VALUES (?, ?, '')", filename, path)
-	if err != nil {
-		return 0, fmt.Errorf("failed to save file to database: %v", err)
-	}
-
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get inserted ID: %v", err)
-	}
-
-	return id, nil
-}
-
-// processUploadedFile handles the complete file processing workflow
-func processUploadedFile(src io.Reader, originalFilename string) (int64, string, string, error) {
-	// Strict duplicate check — error out if file already exists
-	finalFilename, finalPath, err := checkFileConflictStrict(originalFilename)
-	if err != nil {
-		return 0, "", "", err
-	}
-	// Create temporary file
-	tempPath := finalPath + ".tmp"
-	tempFile, err := os.Create(tempPath)
-	if err != nil {
-		return 0, "", "", fmt.Errorf("failed to create temp file: %v", err)
-	}
-
-	// Copy data to temp file
-	_, err = io.Copy(tempFile, src)
-	tempFile.Close()
-	if err != nil {
-		os.Remove(tempPath)
-		return 0, "", "", fmt.Errorf("failed to copy file data: %v", err)
-	}
-
-	// Process video (codec detection and potential re-encoding)
-	processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
-	if err != nil {
-		os.Remove(tempPath)
-		return 0, "", "", err
-	}
-
-	// Save to database
-	id, err := saveFileToDatabase(finalFilename, processedPath)
-	if err != nil {
-		os.Remove(processedPath)
-		return 0, "", "", err
-	}
-
-	return id, finalFilename, warningMsg, nil
+	Tags map[string][]TagDisplay
 }
 
 func main() {
@@ -363,6 +241,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 
 // List all files, plus untagged files
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
+    tagMap, _ := getTagData()
 	// Tagged files
 	rows, _ := db.Query(`
 		SELECT DISTINCT f.id, f.filename, f.path, COALESCE(f.description, '') as description
@@ -397,11 +276,12 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageData := PageData{
-		Title: "Home",
-		Data: struct {
-			Tagged   []File
-			Untagged []File
-		}{tagged, untagged},
+        Title: "Home",
+        Data: struct {
+            Tagged   []File
+            Untagged []File
+        }{tagged, untagged},
+        Tags: tagMap,
 	}
 
 	tmpl.ExecuteTemplate(w, "list.html", pageData)
@@ -429,9 +309,11 @@ func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
 		files = append(files, f)
 	}
 
+	tagMap, _ := getTagData()
 	pageData := PageData{
 		Title: "Untagged Files",
 		Data:  files,
+		Tags: tagMap,
 	}
 
 	tmpl.ExecuteTemplate(w, "untagged.html", pageData)
@@ -440,9 +322,11 @@ func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
 // Add a file
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+	    tagMap, _ := getTagData()
 		pageData := PageData{
 			Title: "Add File",
 			Data:  nil,
+			Tags:  tagMap,  // <- header menu
 		}
 		tmpl.ExecuteTemplate(w, "add.html", pageData)
 		return
@@ -725,8 +609,10 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     // Escape filename for copy/paste
     escaped := url.PathEscape(f.Filename)
 
+    tagMap, _ := getTagData()
     pageData := PageData{
         Title: f.Filename,
+        Tags: tagMap,
         Data: struct {
             File            File
             Categories      []string
@@ -762,30 +648,15 @@ func tagActionHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 
 // Show all tags
 func tagsHandler(w http.ResponseWriter, r *http.Request) {
-	rows, _ := db.Query(`
-		SELECT c.name, t.value, COUNT(ft.file_id)
-		FROM tags t
-		JOIN categories c ON c.id = t.category_id
-		LEFT JOIN file_tags ft ON ft.tag_id = t.id
-		GROUP BY t.id
-		HAVING COUNT(ft.file_id) > 0
-		ORDER BY c.name, t.value`)
-	defer rows.Close()
+    tagMap, _ := getTagData()
 
-	tagMap := make(map[string][]TagDisplay)
-	for rows.Next() {
-		var cat, val string
-		var count int
-		rows.Scan(&cat, &val, &count)
-		tagMap[cat] = append(tagMap[cat], TagDisplay{Value: val, Count: count})
-	}
+    pageData := PageData{
+        Title: "All Tags",
+        Data:  tagMap,
+        Tags:  tagMap,
+    }
 
-	pageData := PageData{
-		Title: "All Tags",
-		Data:  tagMap,
-	}
-
-	tmpl.ExecuteTemplate(w, "tags.html", pageData)
+    tmpl.ExecuteTemplate(w, "tags.html", pageData)
 }
 
 // Filter files by tags
@@ -851,8 +722,10 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	title := "Tagged: " + strings.Join(titleParts, ", ")
 
+	tagMap, _ := getTagData()
 	pageData := PageData{
 		Title: title,
+		Tags: tagMap,
 		Data: struct {
 			Tagged   []File
 			Untagged []File
@@ -975,8 +848,10 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Show settings form
+	tagMap, _ := getTagData()
 	pageData := PageData{
 		Title: "Settings",
+		Tags: tagMap,
 		Data: struct {
 			Config  Config
 			Error   string
@@ -1298,8 +1173,10 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		recentRows.Close()
 
+		tagMap, _ := getTagData()
 		pageData := PageData{
 			Title: "Bulk Tag Editor",
+			Tags:  tagMap,
 			Data: struct {
 				Categories  []string
 				RecentFiles []File
@@ -1504,4 +1381,151 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func getTagData() (map[string][]TagDisplay, error) {
+    rows, err := db.Query(`
+        SELECT c.name, t.value, COUNT(ft.file_id)
+        FROM tags t
+        JOIN categories c ON c.id = t.category_id
+        LEFT JOIN file_tags ft ON ft.tag_id = t.id
+        GROUP BY t.id
+        HAVING COUNT(ft.file_id) > 0
+        ORDER BY c.name, t.value`)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    tagMap := make(map[string][]TagDisplay)
+    for rows.Next() {
+        var cat, val string
+        var count int
+        rows.Scan(&cat, &val, &count)
+        tagMap[cat] = append(tagMap[cat], TagDisplay{Value: val, Count: count})
+    }
+    return tagMap, nil
+}
+
+// sanitizeFilename removes problematic characters from filenames
+func sanitizeFilename(filename string) string {
+	if filename == "" {
+		return "file"
+	}
+
+	filename = strings.ReplaceAll(filename, "/", "_")
+	filename = strings.ReplaceAll(filename, "\\", "_")
+	filename = strings.ReplaceAll(filename, "..", "_")
+
+	if filename == "" {
+		return "file"
+	}
+	return filename
+}
+
+// detectVideoCodec uses ffprobe to detect the video codec
+func detectVideoCodec(filePath string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", filePath)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to probe video codec: %v", err)
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
+// reencodeHEVCToH264 converts HEVC videos to H.264 for browser compatibility
+func reencodeHEVCToH264(inputPath, outputPath string) error {
+	cmd := exec.Command("ffmpeg", "-i", inputPath,
+		"-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23",
+		"-c:a", "aac", "-movflags", "+faststart", outputPath)
+
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+
+	return cmd.Run()
+}
+
+// processVideoFile handles codec detection and re-encoding if needed
+// Returns final path, warning message (if any), and error
+func processVideoFile(tempPath, finalPath string) (string, string, error) {
+	codec, err := detectVideoCodec(tempPath)
+	if err != nil {
+		return "", "", err
+	}
+
+	// If HEVC, re-encode to H.264
+	if codec == "hevc" || codec == "h265" {
+		warningMsg := "The video uses HEVC and has been re-encoded to H.264 for browser compatibility."
+
+		if err := reencodeHEVCToH264(tempPath, finalPath); err != nil {
+			return "", "", fmt.Errorf("failed to re-encode HEVC video: %v", err)
+		}
+
+		os.Remove(tempPath) // Clean up temp file
+		return finalPath, warningMsg, nil
+	}
+
+	// If not HEVC, just move temp file to final destination
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		return "", "", fmt.Errorf("failed to move file: %v", err)
+	}
+
+	return finalPath, "", nil
+}
+
+// saveFileToDatabase adds file record to database and returns the ID
+func saveFileToDatabase(filename, path string) (int64, error) {
+	res, err := db.Exec("INSERT INTO files (filename, path, description) VALUES (?, ?, '')", filename, path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to save file to database: %v", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get inserted ID: %v", err)
+	}
+
+	return id, nil
+}
+
+// processUploadedFile handles the complete file processing workflow
+func processUploadedFile(src io.Reader, originalFilename string) (int64, string, string, error) {
+	// Strict duplicate check — error out if file already exists
+	finalFilename, finalPath, err := checkFileConflictStrict(originalFilename)
+	if err != nil {
+		return 0, "", "", err
+	}
+	// Create temporary file
+	tempPath := finalPath + ".tmp"
+	tempFile, err := os.Create(tempPath)
+	if err != nil {
+		return 0, "", "", fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	// Copy data to temp file
+	_, err = io.Copy(tempFile, src)
+	tempFile.Close()
+	if err != nil {
+		os.Remove(tempPath)
+		return 0, "", "", fmt.Errorf("failed to copy file data: %v", err)
+	}
+
+	// Process video (codec detection and potential re-encoding)
+	processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
+	if err != nil {
+		os.Remove(tempPath)
+		return 0, "", "", err
+	}
+
+	// Save to database
+	id, err := saveFileToDatabase(finalFilename, processedPath)
+	if err != nil {
+		os.Remove(processedPath)
+		return 0, "", "", err
+	}
+
+	return id, finalFilename, warningMsg, nil
 }

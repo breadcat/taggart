@@ -4,22 +4,24 @@
 {{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
   <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"></a><br>
 {{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov"}}
-  <video controls width="400" muted>
+  <video id="videoPlayer" controls width="600" muted>
     <source src="/uploads/{{.Data.EscapedFilename}}">
   </video><br>
 {{else}}
   <a href="/uploads/{{.Data.EscapedFilename}}">Download file</a><br>
 {{end}}
 
+<script src="/static/timestamps.js" defer></script>
+
 <div class="description-section" style="margin: 20px 0; padding: 15px;">
     <h3 style="margin-top: 0;">Description</h3>
 
     <!-- Display Mode -->
-    <div id="description-display">
+    <div id="description-display" data-original-description="{{.Data.File.Description}}">
         {{if .Data.File.Description}}
-            <div class="current-description" style="background: #f9f9f9; padding: 10px; border-radius: 3px; margin-bottom: 10px; white-space: pre-wrap; min-height: 20px;">{{.Data.File.Description}}</div>
+            <div id="current-description" style="background: #f9f9f9; padding: 10px; border-radius: 3px; margin-bottom: 10px; white-space: pre-wrap; min-height: 20px;">{{.Data.File.Description}}</div>
         {{else}}
-            <div class="no-description" style="color: #666; font-style: italic; margin-bottom: 10px; padding: 10px;">No description set</div>
+            <div id="no-description" style="color: #666; font-style: italic; margin-bottom: 10px; padding: 10px;">No description set</div>
         {{end}}
         <button id="edit-description-btn" onclick="toggleDescriptionEdit()" style="background: #007cba; color: white; padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 14px;">
             {{if .Data.File.Description}}Edit Description{{else}}Add Description{{end}}
@@ -48,88 +50,13 @@
     </div>
 </div>
 
-<script>
-function toggleDescriptionEdit() {
-    const displayDiv = document.getElementById('description-display');
-    const editDiv = document.getElementById('description-edit');
-
-    displayDiv.style.display = 'none';
-    editDiv.style.display = 'block';
-
-    // Focus the textarea and update character count
-    const textarea = document.getElementById('description-textarea');
-    textarea.focus();
-
-    // Move cursor to end of text if there's existing content
-    if (textarea.value) {
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }
-}
-
-function cancelDescriptionEdit() {
-    const displayDiv = document.getElementById('description-display');
-    const editDiv = document.getElementById('description-edit');
-    const textarea = document.getElementById('description-textarea');
-
-    // Reset textarea to original value
-    textarea.value = {{if .Data.File.Description}}`{{.Data.File.Description}}`{{else}}``{{end}};
-
-    displayDiv.style.display = 'block';
-    editDiv.style.display = 'none';
-}
-
-// Auto-resize textarea as content changes
-document.addEventListener('DOMContentLoaded', function() {
-    const textarea = document.getElementById('description-textarea');
-    if (textarea) {
-        textarea.addEventListener('input', function() {
-            // Reset height to auto to get the correct scrollHeight
-            this.style.height = 'auto';
-            // Set the height to match the content, with a minimum of 6 rows
-            const minHeight = parseInt(getComputedStyle(this).lineHeight) * 6;
-            this.style.height = Math.max(minHeight, this.scrollHeight) + 'px';
-        });
-    }
-});
-</script>
+<script src="/static/description.js" defer></script>
 
 <h3>Raw URL</h3>
 <pre id="raw-url">http://{{.IP}}:{{.Port}}/uploads/{{.Data.EscapedFilename}}</pre>
 <button id="copy-btn" style="margin-top: 5px;">Copy to Clipboard</button>
 <span id="copy-status" style="margin-left: 10px;"></span>
-
-<script>
-document.getElementById("copy-btn").addEventListener("click", function() {
-    const text = document.getElementById("raw-url").textContent.trim();
-    const status = document.getElementById("copy-status");
-
-    // Fallback approach using a temporary textarea
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.style.position = "fixed"; // prevent scrolling
-    textarea.style.left = "-9999px"; // off-screen
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-
-    let successful = false;
-    try {
-        successful = document.execCommand("copy");
-    } catch (err) {
-        successful = false;
-    }
-
-    document.body.removeChild(textarea);
-
-    if (successful) {
-        status.textContent = "✓ Copied!";
-        status.style.color = "green";
-    } else {
-        status.textContent = "✗ Copy failed";
-        status.style.color = "red";
-    }
-});
-</script>
+<script src="/static/copy-link.js" defer></script>
 
 
 

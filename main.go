@@ -1344,8 +1344,10 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 				strings.Join(filenames[:5], ", "), len(filenames)-5)
 		}
 
+		tagMap, _ := getTagData()
 		pageData := PageData{
 			Title: "Bulk Tag Editor",
+			Tags:  tagMap,
 			Data: struct {
 				Categories  []string
 				RecentFiles []File

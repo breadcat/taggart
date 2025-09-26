@@ -21,18 +21,18 @@ import (
 )
 
 var (
-	db   *sql.DB
-	tmpl *template.Template
+	db     *sql.DB
+	tmpl   *template.Template
 	config Config
 )
 
 type File struct {
-	ID       int
-	Filename string
+	ID              int
+	Filename        string
 	EscapedFilename string
-	Path     string
-	Description	string
-	Tags     map[string]string
+	Path            string
+	Description     string
+	Tags            map[string]string
 }
 
 type Config struct {
@@ -53,11 +53,79 @@ type PageData struct {
 	IP    string
 	Port  string
 	Files []File
-	Tags map[string][]TagDisplay
+	Tags  map[string][]TagDisplay
+}
+
+// Common file query helpers
+func queryFilesWithTags(query string, args ...interface{}) ([]File, error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []File
+	for rows.Next() {
+		var f File
+		if err := rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description); err != nil {
+			return nil, err
+		}
+		f.EscapedFilename = url.PathEscape(f.Filename)
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+func getTaggedFiles() ([]File, error) {
+	return queryFilesWithTags(`
+		SELECT DISTINCT f.id, f.filename, f.path, COALESCE(f.description, '') as description
+		FROM files f
+		JOIN file_tags ft ON ft.file_id = f.id
+		ORDER BY f.id DESC
+	`)
+}
+
+func getUntaggedFiles() ([]File, error) {
+	return queryFilesWithTags(`
+		SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description
+		FROM files f
+		LEFT JOIN file_tags ft ON ft.file_id = f.id
+		WHERE ft.file_id IS NULL
+		ORDER BY f.id DESC
+	`)
+}
+
+// Common page data builder
+func buildPageData(title string, data interface{}) PageData {
+	tagMap, _ := getTagData()
+	return PageData{
+		Title: title,
+		Data:  data,
+		Tags:  tagMap,
+	}
+}
+
+func buildPageDataWithIP(title string, data interface{}) PageData {
+	pageData := buildPageData(title, data)
+	ip, _ := getLocalIP()
+	pageData.IP = ip
+	pageData.Port = strings.TrimPrefix(config.ServerPort, ":")
+	return pageData
+}
+
+// Common error response helper
+func renderError(w http.ResponseWriter, message string, statusCode int) {
+	http.Error(w, message, statusCode)
+}
+
+// Common template rendering with error handling
+func renderTemplate(w http.ResponseWriter, tmplName string, data PageData) {
+	if err := tmpl.ExecuteTemplate(w, tmplName, data); err != nil {
+		renderError(w, "Template rendering failed", http.StatusInternalServerError)
+	}
 }
 
 func main() {
-	// Load configuration first
 	if err := loadConfig(); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -123,7 +191,6 @@ func main() {
 	http.HandleFunc("/settings", settingsHandler)
 	http.HandleFunc("/orphans", orphansHandler)
 
-	// Use configured upload directory for file serving
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(config.UploadDir))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
@@ -133,55 +200,71 @@ func main() {
 	http.ListenAndServe(config.ServerPort, nil)
 }
 
-
 func searchHandler(w http.ResponseWriter, r *http.Request) {
-    query := strings.TrimSpace(r.URL.Query().Get("q"))
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
 
-    var files []File
-    var searchTitle string
+	var files []File
+	var searchTitle string
 
-    if query != "" {
-        // Convert wildcards to SQL LIKE pattern
-        sqlPattern := strings.ReplaceAll(query, "*", "%")
-        sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
+	if query != "" {
+		sqlPattern := strings.ReplaceAll(query, "*", "%")
+		sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
 
-        rows, err := db.Query(
-            "SELECT id, filename, path, COALESCE(description, '') as description FROM files WHERE filename LIKE ? OR description LIKE ? ORDER BY filename",
-            sqlPattern, sqlPattern,
-        )
-        if err != nil {
-            http.Error(w, "Search failed", http.StatusInternalServerError)
-            return
-        }
-        defer rows.Close()
+		var err error
+		files, err = queryFilesWithTags(
+			"SELECT id, filename, path, COALESCE(description, '') as description FROM files WHERE filename LIKE ? OR description LIKE ? ORDER BY filename",
+			sqlPattern, sqlPattern,
+		)
+		if err != nil {
+			renderError(w, "Search failed", http.StatusInternalServerError)
+			return
+		}
+		searchTitle = fmt.Sprintf("Search Results for: %s", query)
+	} else {
+		searchTitle = "Search Files"
+	}
 
-        for rows.Next() {
-            var f File
-            if err := rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description); err != nil {
-                http.Error(w, "Failed to read results", http.StatusInternalServerError)
-                return
-            }
-            f.EscapedFilename = url.PathEscape(f.Filename)
-            files = append(files, f)
-        }
-
-        searchTitle = fmt.Sprintf("Search Results for: %s", query)
-    } else {
-        searchTitle = "Search Files"
-    }
-
-    pageData := PageData{
-        Title: searchTitle,
-        Query: query,
-        Files: files,
-    }
-
-    if err := tmpl.ExecuteTemplate(w, "search.html", pageData); err != nil {
-        http.Error(w, "Template rendering failed", http.StatusInternalServerError)
-    }
+	pageData := buildPageData(searchTitle, files)
+	pageData.Query = query
+	pageData.Files = files
+	renderTemplate(w, "search.html", pageData)
 }
 
-// Upload file from URL
+// Unified upload processing function
+func processUpload(src io.Reader, filename string) (int64, string, error) {
+	finalFilename, finalPath, err := checkFileConflictStrict(filename)
+	if err != nil {
+		return 0, "", err
+	}
+
+	tempPath := finalPath + ".tmp"
+	tempFile, err := os.Create(tempPath)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	_, err = io.Copy(tempFile, src)
+	tempFile.Close()
+	if err != nil {
+		os.Remove(tempPath)
+		return 0, "", fmt.Errorf("failed to copy file data: %v", err)
+	}
+
+	processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
+	if err != nil {
+		os.Remove(tempPath)
+		return 0, "", err
+	}
+
+	id, err := saveFileToDatabase(finalFilename, processedPath)
+	if err != nil {
+		os.Remove(processedPath)
+		return 0, "", err
+	}
+
+	return id, warningMsg, nil
+}
+
 func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Redirect(w, r, "/upload", http.StatusSeeOther)
@@ -190,7 +273,7 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 
 	fileURL := r.FormValue("fileurl")
 	if fileURL == "" {
-		http.Error(w, "No URL provided", http.StatusBadRequest)
+		renderError(w, "No URL provided", http.StatusBadRequest)
 		return
 	}
 
@@ -198,18 +281,17 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 
 	parsedURL, err := url.ParseRequestURI(fileURL)
 	if err != nil || !(parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		renderError(w, "Invalid URL", http.StatusBadRequest)
 		return
 	}
 
 	resp, err := http.Get(fileURL)
 	if err != nil || resp.StatusCode != http.StatusOK {
-		http.Error(w, "Failed to download file", http.StatusBadRequest)
+		renderError(w, "Failed to download file", http.StatusBadRequest)
 		return
 	}
 	defer resp.Body.Close()
 
-	// Determine filename
 	var filename string
 	urlExt := filepath.Ext(parsedURL.Path)
 	if customFilename != "" {
@@ -225,138 +307,65 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Process the uploaded file
-	id, _, warningMsg, err := processUploadedFile(resp.Body, filename)
+	id, warningMsg, err := processUpload(resp.Body, filename)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		renderError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Redirect with optional warning
-	redirectURL := fmt.Sprintf("/file/%d", id)
-	if warningMsg != "" {
-		redirectURL += "?warning=" + url.QueryEscape(warningMsg)
-	}
-	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+	redirectWithWarning(w, r, fmt.Sprintf("/file/%d", id), warningMsg)
 }
 
-// List all files, plus untagged files
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-    tagMap, _ := getTagData()
-	// Tagged files
-	rows, _ := db.Query(`
-		SELECT DISTINCT f.id, f.filename, f.path, COALESCE(f.description, '') as description
-		FROM files f
-		JOIN file_tags ft ON ft.file_id = f.id
-		ORDER BY f.id DESC
-	`)
-	defer rows.Close()
-	var tagged []File
-	for rows.Next() {
-		var f File
-		rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
-		f.EscapedFilename = url.PathEscape(f.Filename)
-		tagged = append(tagged, f)
-	}
+	tagged, _ := getTaggedFiles()
+	untagged, _ := getUntaggedFiles()
 
-	// Untagged files
-	untaggedRows, _ := db.Query(`
-		SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description
-		FROM files f
-		LEFT JOIN file_tags ft ON ft.file_id = f.id
-		WHERE ft.file_id IS NULL
-		ORDER BY f.id DESC
-	`)
-	defer untaggedRows.Close()
-	var untagged []File
-	for untaggedRows.Next() {
-		var f File
-		untaggedRows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
-		f.EscapedFilename = url.PathEscape(f.Filename)
-		untagged = append(untagged, f)
-	}
+	pageData := buildPageData("Home", struct {
+		Tagged   []File
+		Untagged []File
+	}{tagged, untagged})
 
-	pageData := PageData{
-        Title: "Home",
-        Data: struct {
-            Tagged   []File
-            Untagged []File
-        }{tagged, untagged},
-        Tags: tagMap,
-	}
-
-	tmpl.ExecuteTemplate(w, "list.html", pageData)
+	renderTemplate(w, "list.html", pageData)
 }
 
-// Show untagged files at /untagged
 func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
-	rows, _ := db.Query(`
-		SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description
-		FROM files f
-		WHERE NOT EXISTS (
-			SELECT 1
-			FROM file_tags ft
-			WHERE ft.file_id = f.id
-		)
-		ORDER BY f.id DESC
-	`)
-	defer rows.Close()
-
-	var files []File
-	for rows.Next() {
-		var f File
-		rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
-		f.EscapedFilename = url.PathEscape(f.Filename)
-		files = append(files, f)
-	}
-
-	tagMap, _ := getTagData()
-	pageData := PageData{
-		Title: "Untagged Files",
-		Data:  files,
-		Tags: tagMap,
-	}
-
-	tmpl.ExecuteTemplate(w, "untagged.html", pageData)
+	files, _ := getUntaggedFiles()
+	pageData := buildPageData("Untagged Files", files)
+	renderTemplate(w, "untagged.html", pageData)
 }
 
-// Add a file
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-	    tagMap, _ := getTagData()
-		pageData := PageData{
-			Title: "Add File",
-			Data:  nil,
-			Tags:  tagMap,  // <- header menu
-		}
-		tmpl.ExecuteTemplate(w, "add.html", pageData)
+		pageData := buildPageData("Add File", nil)
+		renderTemplate(w, "add.html", pageData)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "Failed to read uploaded file", http.StatusBadRequest)
+		renderError(w, "Failed to read uploaded file", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	// Process the uploaded file
-	id, _, warningMsg, err := processUploadedFile(file, header.Filename)
+	id, warningMsg, err := processUpload(file, header.Filename)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		renderError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Redirect with optional warning
-	redirectURL := fmt.Sprintf("/file/%d", id)
+	redirectWithWarning(w, r, fmt.Sprintf("/file/%d", id), warningMsg)
+}
+
+// Helper function for redirects with optional warnings
+func redirectWithWarning(w http.ResponseWriter, r *http.Request, baseURL, warningMsg string) {
+	redirectURL := baseURL
 	if warningMsg != "" {
 		redirectURL += "?warning=" + url.QueryEscape(warningMsg)
 	}
 	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
-// checkFileConflictStrict checks if a file already exists in the upload directory.
-// It returns the final filename, full path, or an error if a duplicate exists.
 func checkFileConflictStrict(filename string) (string, string, error) {
 	finalPath := filepath.Join(config.UploadDir, filename)
 	if _, err := os.Stat(finalPath); err == nil {
@@ -367,49 +376,42 @@ func checkFileConflictStrict(filename string) (string, string, error) {
 	return filename, finalPath, nil
 }
 
-// raw local IP for raw address
 func getLocalIP() (string, error) {
-    addrs, err := net.InterfaceAddrs()
-    if err != nil {
-        return "", err
-    }
-    for _, addr := range addrs {
-        if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-            if ipnet.IP.To4() != nil {
-                return ipnet.IP.String(), nil
-            }
-        }
-    }
-    return "", fmt.Errorf("no connected network interface found")
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String(), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no connected network interface found")
 }
 
-// Router for file operations, tag deletion, rename, and delete
 func fileRouter(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
 
-	// Handle delete: /file/{id}/delete
 	if len(parts) >= 4 && parts[3] == "delete" {
 		fileDeleteHandler(w, r, parts)
 		return
 	}
 
-	// Handle rename: /file/{id}/rename
 	if len(parts) >= 4 && parts[3] == "rename" {
 		fileRenameHandler(w, r, parts)
 		return
 	}
 
-	// Handle tag deletion: /file/{id}/tag/{category}/{value}/delete
 	if len(parts) >= 7 && parts[3] == "tag" {
 		tagActionHandler(w, r, parts)
 		return
 	}
 
-	// Default file handler
 	fileHandler(w, r)
 }
 
-// Handle file deletion
 func fileDeleteHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	if r.Method != http.MethodPost {
 		http.Redirect(w, r, "/file/"+parts[2], http.StatusSeeOther)
@@ -418,55 +420,46 @@ func fileDeleteHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 
 	fileID := parts[2]
 
-	// Get current file info
 	var currentFile File
 	err := db.QueryRow("SELECT id, filename, path FROM files WHERE id=?", fileID).Scan(&currentFile.ID, &currentFile.Filename, &currentFile.Path)
 	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+		renderError(w, "File not found", http.StatusNotFound)
 		return
 	}
 
-	// Start a transaction to ensure data consistency
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
+		renderError(w, "Failed to start transaction", http.StatusInternalServerError)
 		return
 	}
-	defer tx.Rollback() // Will be ignored if tx.Commit() is called
+	defer tx.Rollback()
 
-	// Delete file_tags relationships
 	_, err = tx.Exec("DELETE FROM file_tags WHERE file_id=?", fileID)
 	if err != nil {
-		http.Error(w, "Failed to delete file tags", http.StatusInternalServerError)
+		renderError(w, "Failed to delete file tags", http.StatusInternalServerError)
 		return
 	}
 
-	// Delete file record
 	_, err = tx.Exec("DELETE FROM files WHERE id=?", fileID)
 	if err != nil {
-		http.Error(w, "Failed to delete file record", http.StatusInternalServerError)
+		renderError(w, "Failed to delete file record", http.StatusInternalServerError)
 		return
 	}
 
-	// Commit the database transaction
 	err = tx.Commit()
 	if err != nil {
-		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+		renderError(w, "Failed to commit transaction", http.StatusInternalServerError)
 		return
 	}
 
-	// Delete the physical file (after successful database deletion)
 	err = os.Remove(currentFile.Path)
 	if err != nil {
-		// Log the error but don't fail the request - database is already clean
 		log.Printf("Warning: Failed to delete physical file %s: %v", currentFile.Path, err)
 	}
 
-	// Redirect to home page with success
 	http.Redirect(w, r, "/?deleted="+currentFile.Filename, http.StatusSeeOther)
 }
 
-// Handle file renaming
 func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	if r.Method != http.MethodPost {
 		http.Redirect(w, r, "/file/"+parts[2], http.StatusSeeOther)
@@ -477,55 +470,46 @@ func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	newFilename := strings.TrimSpace(r.FormValue("newfilename"))
 
 	if newFilename == "" {
-		http.Error(w, "New filename cannot be empty", http.StatusBadRequest)
+		renderError(w, "New filename cannot be empty", http.StatusBadRequest)
 		return
 	}
 
-	// Sanitize filename
 	newFilename = sanitizeFilename(newFilename)
 
-	// Get current file info
 	var currentFile File
 	err := db.QueryRow("SELECT id, filename, path FROM files WHERE id=?", fileID).Scan(&currentFile.ID, &currentFile.Filename, &currentFile.Path)
 	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+		renderError(w, "File not found", http.StatusNotFound)
 		return
 	}
 
-	// Skip if filename hasn't changed
 	if currentFile.Filename == newFilename {
 		http.Redirect(w, r, "/file/"+fileID, http.StatusSeeOther)
 		return
 	}
 
-	// Check if new filename already exists
 	newPath := filepath.Join(config.UploadDir, newFilename)
 	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
-		http.Error(w, "A file with that name already exists", http.StatusConflict)
+		renderError(w, "A file with that name already exists", http.StatusConflict)
 		return
 	}
 
-	// Rename the physical file
 	err = os.Rename(currentFile.Path, newPath)
 	if err != nil {
-		http.Error(w, "Failed to rename physical file: "+err.Error(), http.StatusInternalServerError)
+		renderError(w, "Failed to rename physical file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Update database
 	_, err = db.Exec("UPDATE files SET filename=?, path=? WHERE id=?", newFilename, newPath, fileID)
 	if err != nil {
-		// Try to rename file back if database update fails
 		os.Rename(newPath, currentFile.Path)
-		http.Error(w, "Failed to update database", http.StatusInternalServerError)
+		renderError(w, "Failed to update database", http.StatusInternalServerError)
 		return
 	}
 
-	// Redirect back to file page
 	http.Redirect(w, r, "/file/"+fileID, http.StatusSeeOther)
 }
 
-// File detail and add tags
 func fileHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/file/")
 	if strings.Contains(idStr, "/") {
@@ -535,7 +519,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	var f File
 	err := db.QueryRow("SELECT id, filename, path, COALESCE(description, '') as description FROM files WHERE id=?", idStr).Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
 	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+		renderError(w, "File not found", http.StatusNotFound)
 		return
 	}
 
@@ -563,24 +547,21 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	catRows.Close()
 
 	if r.Method == http.MethodPost {
-		// Handle description update
 		if r.FormValue("action") == "update_description" {
 			description := r.FormValue("description")
-			// Limit description to 2KB (2048 characters)
 			if len(description) > 2048 {
 				description = description[:2048]
 			}
 
 			_, err := db.Exec("UPDATE files SET description = ? WHERE id = ?", description, f.ID)
 			if err != nil {
-				http.Error(w, "Failed to update description", http.StatusInternalServerError)
+				renderError(w, "Failed to update description", http.StatusInternalServerError)
 				return
 			}
 			http.Redirect(w, r, "/file/"+idStr, http.StatusSeeOther)
 			return
 		}
 
-		// Handle tag addition (existing functionality)
 		cat := r.FormValue("category")
 		val := r.FormValue("value")
 		if cat != "" && val != "" {
@@ -604,29 +585,16 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    // IP and port for raw URL
-    ip, _ := getLocalIP()
-    port := strings.TrimPrefix(config.ServerPort, ":")
-    // Escape filename for copy/paste
-    escaped := url.PathEscape(f.Filename)
+	escaped := url.PathEscape(f.Filename)
+	pageData := buildPageDataWithIP(f.Filename, struct {
+		File            File
+		Categories      []string
+		EscapedFilename string
+	}{f, cats, escaped})
 
-    tagMap, _ := getTagData()
-    pageData := PageData{
-        Title: f.Filename,
-        Tags: tagMap,
-        Data: struct {
-            File            File
-            Categories      []string
-            EscapedFilename string
-        }{f, cats, escaped},
-        IP:   ip,
-        Port: port,
-    }
-
-	tmpl.ExecuteTemplate(w, "file.html", pageData)
+	renderTemplate(w, "file.html", pageData)
 }
 
-// Delete tag from file
 func tagActionHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	fileID := parts[2]
 	cat := parts[4]
@@ -647,24 +615,16 @@ func tagActionHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	http.Redirect(w, r, "/file/"+fileID, http.StatusSeeOther)
 }
 
-// Show all tags
 func tagsHandler(w http.ResponseWriter, r *http.Request) {
-    tagMap, _ := getTagData()
-
-    pageData := PageData{
-        Title: "All Tags",
-        Data:  tagMap,
-        Tags:  tagMap,
-    }
-
-    tmpl.ExecuteTemplate(w, "tags.html", pageData)
+	pageData := buildPageData("All Tags", nil)
+	pageData.Data = pageData.Tags
+	renderTemplate(w, "tags.html", pageData)
 }
 
-// Filter files by tags
 func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tag/"), "/")
 	if len(pathParts)%2 != 0 {
-		http.Error(w, "Invalid tag filter path", http.StatusBadRequest)
+		renderError(w, "Invalid tag filter path", http.StatusBadRequest)
 		return
 	}
 
@@ -682,7 +642,6 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	args := []interface{}{}
 	for _, f := range filters {
 		if f.Value == "unassigned" {
-			// Files without any tag in this category
 			query += `
 				AND NOT EXISTS (
 					SELECT 1
@@ -693,7 +652,6 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 				)`
 			args = append(args, f.Category)
 		} else {
-			// Files with this specific tag value
 			query += `
 				AND EXISTS (
 					SELECT 1
@@ -706,16 +664,7 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, _ := db.Query(query, args...)
-	defer rows.Close()
-
-	var files []File
-	for rows.Next() {
-		var f File
-		rows.Scan(&f.ID, &f.Filename, &f.Path, &f.Description)
-		f.EscapedFilename = url.PathEscape(f.Filename)
-		files = append(files, f)
-	}
+	files, _ := queryFilesWithTags(query, args...)
 
 	var titleParts []string
 	for _, f := range filters {
@@ -723,35 +672,30 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	title := "Tagged: " + strings.Join(titleParts, ", ")
 
-	tagMap, _ := getTagData()
-	pageData := PageData{
-		Title: title,
-		Tags: tagMap,
-		Data: struct {
-			Tagged   []File
-			Untagged []File
-		}{files, nil},
-	}
+	pageData := buildPageData(title, struct {
+		Tagged   []File
+		Untagged []File
+	}{files, nil})
 
-	tmpl.ExecuteTemplate(w, "list.html", pageData)
+	renderTemplate(w, "list.html", pageData)
 }
 
 func loadConfig() error {
-	// Set defaults
 	config = Config{
 		DatabasePath: "./database.db",
 		UploadDir:    "uploads",
 		ServerPort:   ":8080",
+		InstanceName: "Taggart",
+		GallerySize:  "400px",
+		ItemsPerPage: "100",
 	}
 
-	// Try to load existing config
 	if data, err := ioutil.ReadFile("config.json"); err == nil {
 		if err := json.Unmarshal(data, &config); err != nil {
 			return err
 		}
 	}
 
-	// Ensure upload directory exists
 	return os.MkdirAll(config.UploadDir, 0755)
 }
 
@@ -764,22 +708,18 @@ func saveConfig() error {
 }
 
 func validateConfig(newConfig Config) error {
-	// Validate database path is not empty
 	if newConfig.DatabasePath == "" {
 		return fmt.Errorf("database path cannot be empty")
 	}
 
-	// Validate upload directory is not empty
 	if newConfig.UploadDir == "" {
 		return fmt.Errorf("upload directory cannot be empty")
 	}
 
-	// Validate server port format
 	if newConfig.ServerPort == "" || !strings.HasPrefix(newConfig.ServerPort, ":") {
 		return fmt.Errorf("server port must be in format ':8080'")
 	}
 
-	// Try to create upload directory if it doesn't exist
 	if err := os.MkdirAll(newConfig.UploadDir, 0755); err != nil {
 		return fmt.Errorf("cannot create upload directory: %v", err)
 	}
@@ -787,48 +727,36 @@ func validateConfig(newConfig Config) error {
 	return nil
 }
 
-// Add this settings handler function
 func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		// Handle settings update
 		newConfig := Config{
 			DatabasePath: strings.TrimSpace(r.FormValue("database_path")),
 			UploadDir:    strings.TrimSpace(r.FormValue("upload_dir")),
 			ServerPort:   strings.TrimSpace(r.FormValue("server_port")),
 		}
 
-		// Validate new configuration
 		if err := validateConfig(newConfig); err != nil {
-			pageData := PageData{
-				Title: "Settings",
-				Data: struct {
-					Config Config
-					Error  string
-				}{config, err.Error()},
-			}
-			tmpl.ExecuteTemplate(w, "settings.html", pageData)
+			pageData := buildPageData("Settings", struct {
+				Config Config
+				Error  string
+			}{config, err.Error()})
+			renderTemplate(w, "settings.html", pageData)
 			return
 		}
 
-		// Check if database path changed and requires restart
 		needsRestart := (newConfig.DatabasePath != config.DatabasePath ||
-						newConfig.ServerPort != config.ServerPort)
+			newConfig.ServerPort != config.ServerPort)
 
-		// Save new configuration
 		config = newConfig
 		if err := saveConfig(); err != nil {
-			pageData := PageData{
-				Title: "Settings",
-				Data: struct {
-					Config Config
-					Error  string
-				}{config, "Failed to save configuration: " + err.Error()},
-			}
-			tmpl.ExecuteTemplate(w, "settings.html", pageData)
+			pageData := buildPageData("Settings", struct {
+				Config Config
+				Error  string
+			}{config, "Failed to save configuration: " + err.Error()})
+			renderTemplate(w, "settings.html", pageData)
 			return
 		}
 
-		// Show success message
 		var message string
 		if needsRestart {
 			message = "Settings saved successfully! Please restart the server for database/port changes to take effect."
@@ -836,114 +764,90 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			message = "Settings saved successfully!"
 		}
 
-		pageData := PageData{
-			Title: "Settings",
-			Data: struct {
-				Config  Config
-				Error   string
-				Success string
-			}{config, "", message},
-		}
-		tmpl.ExecuteTemplate(w, "settings.html", pageData)
-		return
-	}
-
-	// Show settings form
-	tagMap, _ := getTagData()
-	pageData := PageData{
-		Title: "Settings",
-		Tags: tagMap,
-		Data: struct {
+		pageData := buildPageData("Settings", struct {
 			Config  Config
 			Error   string
 			Success string
-		}{config, "", ""},
+		}{config, "", message})
+		renderTemplate(w, "settings.html", pageData)
+		return
 	}
-	tmpl.ExecuteTemplate(w, "settings.html", pageData)
+
+	pageData := buildPageData("Settings", struct {
+		Config  Config
+		Error   string
+		Success string
+	}{config, "", ""})
+	renderTemplate(w, "settings.html", pageData)
 }
 
-// yt-dlp Handler
 func ytdlpHandler(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodPost {
-        http.Redirect(w, r, "/upload", http.StatusSeeOther)
-        return
-    }
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/upload", http.StatusSeeOther)
+		return
+	}
 
-    videoURL := r.FormValue("url")
-    if videoURL == "" {
-        http.Error(w, "No URL provided", http.StatusBadRequest)
-        return
-    }
+	videoURL := r.FormValue("url")
+	if videoURL == "" {
+		renderError(w, "No URL provided", http.StatusBadRequest)
+		return
+	}
 
-    // Step 1: Get the expected filename first
-    outTemplate := filepath.Join(config.UploadDir, "%(title)s.%(ext)s")
-    filenameCmd := exec.Command("yt-dlp", "--playlist-items", "1", "-f", "mp4", "-o", outTemplate, "--get-filename", videoURL)
-    filenameBytes, err := filenameCmd.Output()
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Failed to get filename: %v", err), http.StatusInternalServerError)
-        return
-    }
-    expectedFullPath := strings.TrimSpace(string(filenameBytes))
+	outTemplate := filepath.Join(config.UploadDir, "%(title)s.%(ext)s")
+	filenameCmd := exec.Command("yt-dlp", "--playlist-items", "1", "-f", "mp4", "-o", outTemplate, "--get-filename", videoURL)
+	filenameBytes, err := filenameCmd.Output()
+	if err != nil {
+		renderError(w, fmt.Sprintf("Failed to get filename: %v", err), http.StatusInternalServerError)
+		return
+	}
+	expectedFullPath := strings.TrimSpace(string(filenameBytes))
 
-    // Extract just the filename from the full path
-    expectedFilename := filepath.Base(expectedFullPath)
+	expectedFilename := filepath.Base(expectedFullPath)
 
-    // Enforce strict duplicate check
-    finalFilename, finalPath, err := checkFileConflictStrict(expectedFilename)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusConflict)
-        return
-    }
+	finalFilename, finalPath, err := checkFileConflictStrict(expectedFilename)
+	if err != nil {
+		renderError(w, err.Error(), http.StatusConflict)
+		return
+	}
 
-    // Step 2: Download with yt-dlp using the full output template
-    downloadCmd := exec.Command("yt-dlp", "--playlist-items", "1", "-f", "mp4", "-o", outTemplate, videoURL)
-    downloadCmd.Stdout = os.Stdout
-    downloadCmd.Stderr = os.Stderr
-    if err := downloadCmd.Run(); err != nil {
-        http.Error(w, fmt.Sprintf("Failed to download video: %v", err), http.StatusInternalServerError)
-        return
-    }
+	downloadCmd := exec.Command("yt-dlp", "--playlist-items", "1", "-f", "mp4", "-o", outTemplate, videoURL)
+	downloadCmd.Stdout = os.Stdout
+	downloadCmd.Stderr = os.Stderr
+	if err := downloadCmd.Run(); err != nil {
+		renderError(w, fmt.Sprintf("Failed to download video: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-    // Step 3: The file should now be at expectedFullPath, move it to finalPath if different
-    if expectedFullPath != finalPath {
-        if err := os.Rename(expectedFullPath, finalPath); err != nil {
-            http.Error(w, fmt.Sprintf("Failed to move downloaded file: %v", err), http.StatusInternalServerError)
-            return
-        }
-    }
+	if expectedFullPath != finalPath {
+		if err := os.Rename(expectedFullPath, finalPath); err != nil {
+			renderError(w, fmt.Sprintf("Failed to move downloaded file: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
 
-    // Step 4: Process video (codec detection and potential re-encoding)
-    // Create a temporary path for processing
-    tempPath := finalPath + ".tmp"
-    if err := os.Rename(finalPath, tempPath); err != nil {
-        http.Error(w, fmt.Sprintf("Failed to create temp file for processing: %v", err), http.StatusInternalServerError)
-        return
-    }
+	tempPath := finalPath + ".tmp"
+	if err := os.Rename(finalPath, tempPath); err != nil {
+		renderError(w, fmt.Sprintf("Failed to create temp file for processing: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-    processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
-    if err != nil {
-        os.Remove(tempPath) // Clean up
-        http.Error(w, fmt.Sprintf("Failed to process video: %v", err), http.StatusInternalServerError)
-        return
-    }
+	processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
+	if err != nil {
+		os.Remove(tempPath)
+		renderError(w, fmt.Sprintf("Failed to process video: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-    // Step 5: Save to database
-    id, err := saveFileToDatabase(finalFilename, processedPath)
-    if err != nil {
-        os.Remove(processedPath)
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
+	id, err := saveFileToDatabase(finalFilename, processedPath)
+	if err != nil {
+		os.Remove(processedPath)
+		renderError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-    // Step 6: Redirect with optional warning
-    redirectURL := fmt.Sprintf("/file/%d", id)
-    if warningMsg != "" {
-        redirectURL += "?warning=" + url.QueryEscape(warningMsg)
-    }
-    http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+	redirectWithWarning(w, r, fmt.Sprintf("/file/%d", id), warningMsg)
 }
 
-// Parse file ID ranges like "1-3,6,9" into a slice of integers
 func parseFileIDRange(rangeStr string) ([]int, error) {
 	var fileIDs []int
 	parts := strings.Split(rangeStr, ",")
@@ -955,7 +859,6 @@ func parseFileIDRange(rangeStr string) ([]int, error) {
 		}
 
 		if strings.Contains(part, "-") {
-			// Handle range like "1-3"
 			rangeParts := strings.Split(part, "-")
 			if len(rangeParts) != 2 {
 				return nil, fmt.Errorf("invalid range format: %s", part)
@@ -979,7 +882,6 @@ func parseFileIDRange(rangeStr string) ([]int, error) {
 				fileIDs = append(fileIDs, i)
 			}
 		} else {
-			// Handle single ID like "6"
 			id, err := strconv.Atoi(part)
 			if err != nil {
 				return nil, fmt.Errorf("invalid file ID: %s", part)
@@ -988,7 +890,6 @@ func parseFileIDRange(rangeStr string) ([]int, error) {
 		}
 	}
 
-	// Remove duplicates and sort
 	uniqueIDs := make(map[int]bool)
 	var result []int
 	for _, id := range fileIDs {
@@ -1001,13 +902,11 @@ func parseFileIDRange(rangeStr string) ([]int, error) {
 	return result, nil
 }
 
-// Validate that all file IDs exist in the database
 func validateFileIDs(fileIDs []int) ([]File, error) {
 	if len(fileIDs) == 0 {
 		return nil, fmt.Errorf("no file IDs provided")
 	}
 
-	// Build placeholders for the IN clause
 	placeholders := make([]string, len(fileIDs))
 	args := make([]interface{}, len(fileIDs))
 	for i, id := range fileIDs {
@@ -1037,7 +936,6 @@ func validateFileIDs(fileIDs []int) ([]File, error) {
 		foundIDs[f.ID] = true
 	}
 
-	// Check if any IDs were not found
 	var missingIDs []int
 	for _, id := range fileIDs {
 		if !foundIDs[id] {
@@ -1052,25 +950,21 @@ func validateFileIDs(fileIDs []int) ([]File, error) {
 	return files, nil
 }
 
-// Apply tag operations to multiple files
 func applyBulkTagOperations(fileIDs []int, category, value, operation string) error {
 	if category == "" {
 		return fmt.Errorf("category cannot be empty")
 	}
 
-	// For add operations, value is required. For remove operations, value is optional
 	if operation == "add" && value == "" {
 		return fmt.Errorf("value cannot be empty when adding tags")
 	}
 
-	// Start transaction
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %v", err)
 	}
 	defer tx.Rollback()
 
-	// Get or create category
 	var catID int
 	err = tx.QueryRow("SELECT id FROM categories WHERE name=?", category).Scan(&catID)
 	if err != nil && err != sql.ErrNoRows {
@@ -1089,7 +983,6 @@ func applyBulkTagOperations(fileIDs []int, category, value, operation string) er
 		catID = int(cid)
 	}
 
-	// Get or create tag (only needed for specific value operations)
 	var tagID int
 	if value != "" {
 		err = tx.QueryRow("SELECT id FROM tags WHERE category_id=? AND value=?", catID, value).Scan(&tagID)
@@ -1110,7 +1003,6 @@ func applyBulkTagOperations(fileIDs []int, category, value, operation string) er
 		}
 	}
 
-	// Apply operation to all files
 	for _, fileID := range fileIDs {
 		if operation == "add" {
 			_, err = tx.Exec("INSERT OR IGNORE INTO file_tags(file_id, tag_id) VALUES (?, ?)", fileID, tagID)
@@ -1119,13 +1011,11 @@ func applyBulkTagOperations(fileIDs []int, category, value, operation string) er
 			}
 		} else if operation == "remove" {
 			if value != "" {
-				// Remove specific tag value
 				_, err = tx.Exec("DELETE FROM file_tags WHERE file_id=? AND tag_id=?", fileID, tagID)
 				if err != nil {
 					return fmt.Errorf("failed to remove tag from file %d: %v", fileID, err)
 				}
 			} else {
-				// Remove all tags in this category
 				_, err = tx.Exec(`
 					DELETE FROM file_tags
 					WHERE file_id=? AND tag_id IN (
@@ -1140,142 +1030,80 @@ func applyBulkTagOperations(fileIDs []int, category, value, operation string) er
 		}
 	}
 
-	// Commit transaction
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("failed to commit transaction: %v", err)
-	}
-
-	return nil
+	return tx.Commit()
 }
 
-// Bulk tag handler
+// Consolidated bulk tag form data structure
+type BulkTagFormData struct {
+	Categories  []string
+	RecentFiles []File
+	Error       string
+	Success     string
+	FormData    struct {
+		FileRange string
+		Category  string
+		Value     string
+		Operation string
+	}
+}
+
+func getBulkTagFormData() BulkTagFormData {
+	catRows, _ := db.Query("SELECT name FROM categories ORDER BY name")
+	var cats []string
+	for catRows.Next() {
+		var c string
+		catRows.Scan(&c)
+		cats = append(cats, c)
+	}
+	catRows.Close()
+
+	recentRows, _ := db.Query("SELECT id, filename FROM files ORDER BY id DESC LIMIT 20")
+	var recentFiles []File
+	for recentRows.Next() {
+		var f File
+		recentRows.Scan(&f.ID, &f.Filename)
+		recentFiles = append(recentFiles, f)
+	}
+	recentRows.Close()
+
+	return BulkTagFormData{
+		Categories:  cats,
+		RecentFiles: recentFiles,
+		FormData: struct {
+			FileRange string
+			Category  string
+			Value     string
+			Operation string
+		}{Operation: "add"},
+	}
+}
+
 func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		// Show bulk tag form
-
-		// Get all existing categories for the dropdown
-		catRows, _ := db.Query("SELECT name FROM categories ORDER BY name")
-		var cats []string
-		for catRows.Next() {
-			var c string
-			catRows.Scan(&c)
-			cats = append(cats, c)
-		}
-		catRows.Close()
-
-		// Get recent files for reference
-		recentRows, _ := db.Query("SELECT id, filename FROM files ORDER BY id DESC LIMIT 20")
-		var recentFiles []File
-		for recentRows.Next() {
-			var f File
-			recentRows.Scan(&f.ID, &f.Filename)
-			recentFiles = append(recentFiles, f)
-		}
-		recentRows.Close()
-
-		tagMap, _ := getTagData()
-		pageData := PageData{
-			Title: "Bulk Tag Editor",
-			Tags:  tagMap,
-			Data: struct {
-				Categories  []string
-				RecentFiles []File
-				Error       string
-				Success     string
-				FormData    struct {
-					FileRange string
-					Category  string
-					Value     string
-					Operation string
-				}
-			}{
-				Categories:  cats,
-				RecentFiles: recentFiles,
-				Error:       "",
-				Success:     "",
-				FormData: struct {
-					FileRange string
-					Category  string
-					Value     string
-					Operation string
-				}{
-					FileRange: "",
-					Category:  "",
-					Value:     "",
-					Operation: "add",
-				},
-			},
-		}
-
-		tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+		formData := getBulkTagFormData()
+		pageData := buildPageData("Bulk Tag Editor", formData)
+		renderTemplate(w, "bulk-tag.html", pageData)
 		return
 	}
 
 	if r.Method == http.MethodPost {
-		// Process bulk tag operation
 		rangeStr := strings.TrimSpace(r.FormValue("file_range"))
 		category := strings.TrimSpace(r.FormValue("category"))
 		value := strings.TrimSpace(r.FormValue("value"))
-		operation := r.FormValue("operation") // "add" or "remove"
+		operation := r.FormValue("operation")
 
-		// Get categories for form redisplay
-		catRows, _ := db.Query("SELECT name FROM categories ORDER BY name")
-		var cats []string
-		for catRows.Next() {
-			var c string
-			catRows.Scan(&c)
-			cats = append(cats, c)
-		}
-		catRows.Close()
+		formData := getBulkTagFormData()
+		formData.FormData.FileRange = rangeStr
+		formData.FormData.Category = category
+		formData.FormData.Value = value
+		formData.FormData.Operation = operation
 
-		// Get recent files for reference
-		recentRows, _ := db.Query("SELECT id, filename FROM files ORDER BY id DESC LIMIT 20")
-		var recentFiles []File
-		for recentRows.Next() {
-			var f File
-			recentRows.Scan(&f.ID, &f.Filename)
-			recentFiles = append(recentFiles, f)
-		}
-		recentRows.Close()
-
-		// Helper function to create error response
 		createErrorResponse := func(errorMsg string) {
-			pageData := PageData{
-				Title: "Bulk Tag Editor",
-				Data: struct {
-					Categories  []string
-					RecentFiles []File
-					Error       string
-					Success     string
-					FormData    struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}
-				}{
-					Categories:  cats,
-					RecentFiles: recentFiles,
-					Error:       errorMsg,
-					Success:     "",
-					FormData: struct {
-						FileRange string
-						Category  string
-						Value     string
-						Operation string
-					}{
-						FileRange: rangeStr,
-						Category:  category,
-						Value:     value,
-						Operation: operation,
-					},
-				},
-			}
-			tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+			formData.Error = errorMsg
+			pageData := buildPageData("Bulk Tag Editor", formData)
+			renderTemplate(w, "bulk-tag.html", pageData)
 		}
 
-		// Validate basic inputs
 		if rangeStr == "" {
 			createErrorResponse("File range cannot be empty")
 			return
@@ -1286,50 +1114,37 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// For add operations, value is required. For remove operations, value is optional
 		if operation == "add" && value == "" {
 			createErrorResponse("Value cannot be empty when adding tags")
 			return
 		}
 
-		// Parse file ID range
 		fileIDs, err := parseFileIDRange(rangeStr)
 		if err != nil {
 			createErrorResponse(fmt.Sprintf("Invalid file range: %v", err))
 			return
 		}
 
-		// Validate file IDs exist
 		validFiles, err := validateFileIDs(fileIDs)
 		if err != nil {
 			createErrorResponse(fmt.Sprintf("File validation error: %v", err))
 			return
 		}
 
-		// Apply tag operations
 		err = applyBulkTagOperations(fileIDs, category, value, operation)
 		if err != nil {
 			createErrorResponse(fmt.Sprintf("Tag operation failed: %v", err))
 			return
 		}
 
-		// Success message
-		var operationText string
 		var successMsg string
-
 		if operation == "add" {
-			operationText = "added to"
-			successMsg = fmt.Sprintf("Tag '%s: %s' %s %d files",
-				category, value, operationText, len(validFiles))
+			successMsg = fmt.Sprintf("Tag '%s: %s' added to %d files", category, value, len(validFiles))
 		} else {
 			if value != "" {
-				operationText = "removed from"
-				successMsg = fmt.Sprintf("Tag '%s: %s' %s %d files",
-					category, value, operationText, len(validFiles))
+				successMsg = fmt.Sprintf("Tag '%s: %s' removed from %d files", category, value, len(validFiles))
 			} else {
-				operationText = "removed from"
-				successMsg = fmt.Sprintf("All '%s' category tags %s %d files",
-					category, operationText, len(validFiles))
+				successMsg = fmt.Sprintf("All '%s' category tags removed from %d files", category, len(validFiles))
 			}
 		}
 
@@ -1341,53 +1156,20 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 		if len(filenames) <= 5 {
 			successMsg += fmt.Sprintf(": %s", strings.Join(filenames, ", "))
 		} else {
-			successMsg += fmt.Sprintf(": %s and %d more",
-				strings.Join(filenames[:5], ", "), len(filenames)-5)
+			successMsg += fmt.Sprintf(": %s and %d more", strings.Join(filenames[:5], ", "), len(filenames)-5)
 		}
 
-		tagMap, _ := getTagData()
-		pageData := PageData{
-			Title: "Bulk Tag Editor",
-			Tags:  tagMap,
-			Data: struct {
-				Categories  []string
-				RecentFiles []File
-				Error       string
-				Success     string
-				FormData    struct {
-					FileRange string
-					Category  string
-					Value     string
-					Operation string
-				}
-			}{
-				Categories:  cats,
-				RecentFiles: recentFiles,
-				Error:       "",
-				Success:     successMsg,
-				FormData: struct {
-					FileRange string
-					Category  string
-					Value     string
-					Operation string
-				}{
-					FileRange: rangeStr,
-					Category:  category,
-					Value:     value,
-					Operation: operation,
-				},
-			},
-		}
-
-		tmpl.ExecuteTemplate(w, "bulk-tag.html", pageData)
+		formData.Success = successMsg
+		pageData := buildPageData("Bulk Tag Editor", formData)
+		renderTemplate(w, "bulk-tag.html", pageData)
 		return
 	}
 
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	renderError(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func getTagData() (map[string][]TagDisplay, error) {
-    rows, err := db.Query(`
+	rows, err := db.Query(`
         SELECT c.name, t.value, COUNT(ft.file_id)
         FROM tags t
         JOIN categories c ON c.id = t.category_id
@@ -1395,22 +1177,21 @@ func getTagData() (map[string][]TagDisplay, error) {
         GROUP BY t.id
         HAVING COUNT(ft.file_id) > 0
         ORDER BY c.name, t.value`)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    tagMap := make(map[string][]TagDisplay)
-    for rows.Next() {
-        var cat, val string
-        var count int
-        rows.Scan(&cat, &val, &count)
-        tagMap[cat] = append(tagMap[cat], TagDisplay{Value: val, Count: count})
-    }
-    return tagMap, nil
+	tagMap := make(map[string][]TagDisplay)
+	for rows.Next() {
+		var cat, val string
+		var count int
+		rows.Scan(&cat, &val, &count)
+		tagMap[cat] = append(tagMap[cat], TagDisplay{Value: val, Count: count})
+	}
+	return tagMap, nil
 }
 
-// sanitizeFilename removes problematic characters from filenames
 func sanitizeFilename(filename string) string {
 	if filename == "" {
 		return "file"
@@ -1426,7 +1207,6 @@ func sanitizeFilename(filename string) string {
 	return filename
 }
 
-// detectVideoCodec uses ffprobe to detect the video codec
 func detectVideoCodec(filePath string) (string, error) {
 	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
 		"-show_entries", "stream=codec_name", "-of", "default=nokey=1:noprint_wrappers=1", filePath)
@@ -1439,7 +1219,6 @@ func detectVideoCodec(filePath string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// reencodeHEVCToH264 converts HEVC videos to H.264 for browser compatibility
 func reencodeHEVCToH264(inputPath, outputPath string) error {
 	cmd := exec.Command("ffmpeg", "-i", inputPath,
 		"-c:v", "libx264", "-profile:v", "baseline", "-preset", "fast", "-crf", "23",
@@ -1451,15 +1230,12 @@ func reencodeHEVCToH264(inputPath, outputPath string) error {
 	return cmd.Run()
 }
 
-// processVideoFile handles codec detection and re-encoding if needed
-// Returns final path, warning message (if any), and error
 func processVideoFile(tempPath, finalPath string) (string, string, error) {
 	codec, err := detectVideoCodec(tempPath)
 	if err != nil {
 		return "", "", err
 	}
 
-	// If HEVC, re-encode to H.264
 	if codec == "hevc" || codec == "h265" {
 		warningMsg := "The video uses HEVC and has been re-encoded to H.264 for browser compatibility."
 
@@ -1467,11 +1243,10 @@ func processVideoFile(tempPath, finalPath string) (string, string, error) {
 			return "", "", fmt.Errorf("failed to re-encode HEVC video: %v", err)
 		}
 
-		os.Remove(tempPath) // Clean up temp file
+		os.Remove(tempPath)
 		return finalPath, warningMsg, nil
 	}
 
-	// If not HEVC, just move temp file to final destination
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		return "", "", fmt.Errorf("failed to move file: %v", err)
 	}
@@ -1479,7 +1254,6 @@ func processVideoFile(tempPath, finalPath string) (string, string, error) {
 	return finalPath, "", nil
 }
 
-// saveFileToDatabase adds file record to database and returns the ID
 func saveFileToDatabase(filename, path string) (int64, error) {
 	res, err := db.Exec("INSERT INTO files (filename, path, description) VALUES (?, ?, '')", filename, path)
 	if err != nil {
@@ -1494,109 +1268,64 @@ func saveFileToDatabase(filename, path string) (int64, error) {
 	return id, nil
 }
 
-// processUploadedFile handles the complete file processing workflow
-func processUploadedFile(src io.Reader, originalFilename string) (int64, string, string, error) {
-	// Strict duplicate check — error out if file already exists
-	finalFilename, finalPath, err := checkFileConflictStrict(originalFilename)
-	if err != nil {
-		return 0, "", "", err
-	}
-	// Create temporary file
-	tempPath := finalPath + ".tmp"
-	tempFile, err := os.Create(tempPath)
-	if err != nil {
-		return 0, "", "", fmt.Errorf("failed to create temp file: %v", err)
-	}
-
-	// Copy data to temp file
-	_, err = io.Copy(tempFile, src)
-	tempFile.Close()
-	if err != nil {
-		os.Remove(tempPath)
-		return 0, "", "", fmt.Errorf("failed to copy file data: %v", err)
-	}
-
-	// Process video (codec detection and potential re-encoding)
-	processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
-	if err != nil {
-		os.Remove(tempPath)
-		return 0, "", "", err
-	}
-
-	// Save to database
-	id, err := saveFileToDatabase(finalFilename, processedPath)
-	if err != nil {
-		os.Remove(processedPath)
-		return 0, "", "", err
-	}
-
-	return id, finalFilename, warningMsg, nil
-}
-
+// File system operations for orphan detection
 func getFilesOnDisk(uploadDir string) ([]string, error) {
-    entries, err := os.ReadDir(uploadDir)
-    if err != nil {
-        return nil, err
-    }
-    var files []string
-    for _, e := range entries {
-        if !e.IsDir() {
-            files = append(files, e.Name())
-        }
-    }
-    return files, nil
+	entries, err := os.ReadDir(uploadDir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			files = append(files, e.Name())
+		}
+	}
+	return files, nil
 }
 
 func getFilesInDB() (map[string]bool, error) {
-    rows, err := db.Query(`SELECT filename FROM files`)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	rows, err := db.Query(`SELECT filename FROM files`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    fileMap := make(map[string]bool)
-    for rows.Next() {
-        var name string
-        rows.Scan(&name)
-        fileMap[name] = true
-    }
-    return fileMap, nil
+	fileMap := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		rows.Scan(&name)
+		fileMap[name] = true
+	}
+	return fileMap, nil
 }
 
 func getOrphanedFiles(uploadDir string) ([]string, error) {
-    diskFiles, err := getFilesOnDisk(uploadDir)
-    if err != nil {
-        return nil, err
-    }
+	diskFiles, err := getFilesOnDisk(uploadDir)
+	if err != nil {
+		return nil, err
+	}
 
-    dbFiles, err := getFilesInDB()
-    if err != nil {
-        return nil, err
-    }
+	dbFiles, err := getFilesInDB()
+	if err != nil {
+		return nil, err
+	}
 
-    var orphans []string
-    for _, f := range diskFiles {
-        if !dbFiles[f] {
-            orphans = append(orphans, f)
-        }
-    }
-    return orphans, nil
+	var orphans []string
+	for _, f := range diskFiles {
+		if !dbFiles[f] {
+			orphans = append(orphans, f)
+		}
+	}
+	return orphans, nil
 }
 
 func orphansHandler(w http.ResponseWriter, r *http.Request) {
-    tagMap, _ := getTagData() // so header still works
+	orphans, err := getOrphanedFiles(config.UploadDir)
+	if err != nil {
+		renderError(w, "Error reading orphaned files", http.StatusInternalServerError)
+		return
+	}
 
-    orphans, err := getOrphanedFiles(config.UploadDir)
-    if err != nil {
-        http.Error(w, "Error reading orphaned files", 500)
-        return
-    }
-
-    pageData := PageData{
-        Title: "Orphaned Files",
-        Data:  orphans, // just a slice of strings
-        Tags:  tagMap,
-    }
-
-    tmpl.ExecuteTemplate(w, "orphans.html", pageData)
+	pageData := buildPageData("Orphaned Files", orphans)
+	renderTemplate(w, "orphans.html", pageData)
 }

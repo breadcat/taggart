@@ -1,9 +1,9 @@
 {{define "_gallery"}}
 	<div class="gallery-item">
 	<a href="/file/{{.ID}}" title="{{.Filename}}">
-    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px"><br />
-    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}<video width="150" controls><source src="/uploads/{{.EscapedFilename}}"></video><br />
+    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px">
+    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}<div class="gallery-video"><img src="/uploads/thumbnails/{{.EscapedFilename}}.jpg" style="width: 100%; display: block;" /><div class="play-button"></div></div>
     {{end}}
-    {{.Filename}}</a>
+    <br>{{.Filename}}</a>
     </div>
 {{end}}

@@ -38,6 +38,30 @@
         <small style="color: #666;">Port for web server (format: :8080, requires restart if changed)</small>
     </div>
 
+    <div style="margin-bottom: 20px;">
+        <label for="instance_name" style="display: block; font-weight: bold; margin-bottom: 5px;">Instance Name:</label>
+        <input type="text" id="instance_name" name="instance_name" value="{{.Data.Config.InstanceName}}" required
+               style="width: 100%; padding: 8px; font-size: 14px;"
+               placeholder=":8080">
+        <small style="color: #666;">Instance Name, used in header and title bar</small>
+    </div>
+
+    <div style="margin-bottom: 20px;">
+        <label for="gallery_size" style="display: block; font-weight: bold; margin-bottom: 5px;">Gallery Size:</label>
+        <input type="text" id="gallery_size" name="gallery_size" value="{{.Data.Config.GallerySize}}" required
+               style="width: 100%; padding: 8px; font-size: 14px;"
+               placeholder=":8080">
+        <small style="color: #666;">Size of previews used in galleries</small>
+    </div>
+
+    <div style="margin-bottom: 20px;">
+        <label for="items_per_page" style="display: block; font-weight: bold; margin-bottom: 5px;">Items per Page:</label>
+        <input type="text" id="items_per_page" name="items_per_page" value="{{.Data.Config.ItemsPerPage}}" required
+               style="width: 100%; padding: 8px; font-size: 14px;"
+               placeholder=":8080">
+        <small style="color: #666;">Items per page in galleries</small>
+    </div>
+
     <button type="submit" style="background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 16px;">
         Save Settings
     </button>
@@ -49,6 +73,9 @@
         <li><strong>Database:</strong> {{.Data.Config.DatabasePath}}</li>
         <li><strong>Upload Directory:</strong> {{.Data.Config.UploadDir}}</li>
         <li><strong>Server Port:</strong> {{.Data.Config.ServerPort}}</li>
+        <li><strong>Instance Name:</strong> {{.Data.Config.InstanceName}}</li>
+        <li><strong>Gallery Size:</strong> {{.Data.Config.GallerySize}}</li>
+        <li><strong>Items per Page:</strong> {{.Data.Config.ItemsPerPage}}</li>
     </ul>
 
     <h4>Configuration File:</h4>

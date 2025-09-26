@@ -36,9 +36,12 @@ type File struct {
 }
 
 type Config struct {
-	DatabasePath  string `json:"database_path"`
-	UploadDir     string `json:"upload_dir"`
-	ServerPort    string `json:"server_port"`
+	DatabasePath string `json:"database_path"`
+	UploadDir    string `json:"upload_dir"`
+	ServerPort   string `json:"server_port"`
+	InstanceName string `json:"instance_name"`
+	GallerySize  string `json:"gallery_size"`
+	ItemsPerPage string `json:"items_per_page"`
 }
 
 type TagDisplay struct {
@@ -733,6 +736,9 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			DatabasePath: strings.TrimSpace(r.FormValue("database_path")),
 			UploadDir:    strings.TrimSpace(r.FormValue("upload_dir")),
 			ServerPort:   strings.TrimSpace(r.FormValue("server_port")),
+			InstanceName: strings.TrimSpace(r.FormValue("instance_name")),
+			GallerySize:  strings.TrimSpace(r.FormValue("gallery_size")),
+			ItemsPerPage: strings.TrimSpace(r.FormValue("items_per_page")),
 		}
 
 		if err := validateConfig(newConfig); err != nil {

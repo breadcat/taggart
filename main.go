@@ -121,6 +121,7 @@ func main() {
 	http.HandleFunc("/search", searchHandler)
 	http.HandleFunc("/bulk-tag", bulkTagHandler)
 	http.HandleFunc("/settings", settingsHandler)
+	http.HandleFunc("/orphans", orphansHandler)
 
 	// Use configured upload directory for file serving
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(config.UploadDir))))
@@ -1530,4 +1531,72 @@ func processUploadedFile(src io.Reader, originalFilename string) (int64, string,
 	}
 
 	return id, finalFilename, warningMsg, nil
+}
+
+func getFilesOnDisk(uploadDir string) ([]string, error) {
+    entries, err := os.ReadDir(uploadDir)
+    if err != nil {
+        return nil, err
+    }
+    var files []string
+    for _, e := range entries {
+        if !e.IsDir() {
+            files = append(files, e.Name())
+        }
+    }
+    return files, nil
+}
+
+func getFilesInDB() (map[string]bool, error) {
+    rows, err := db.Query(`SELECT filename FROM files`)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    fileMap := make(map[string]bool)
+    for rows.Next() {
+        var name string
+        rows.Scan(&name)
+        fileMap[name] = true
+    }
+    return fileMap, nil
+}
+
+func getOrphanedFiles(uploadDir string) ([]string, error) {
+    diskFiles, err := getFilesOnDisk(uploadDir)
+    if err != nil {
+        return nil, err
+    }
+
+    dbFiles, err := getFilesInDB()
+    if err != nil {
+        return nil, err
+    }
+
+    var orphans []string
+    for _, f := range diskFiles {
+        if !dbFiles[f] {
+            orphans = append(orphans, f)
+        }
+    }
+    return orphans, nil
+}
+
+func orphansHandler(w http.ResponseWriter, r *http.Request) {
+    tagMap, _ := getTagData() // so header still works
+
+    orphans, err := getOrphanedFiles(config.UploadDir)
+    if err != nil {
+        http.Error(w, "Error reading orphaned files", 500)
+        return
+    }
+
+    pageData := PageData{
+        Title: "Orphaned Files",
+        Data:  orphans, // just a slice of strings
+        Tags:  tagMap,
+    }
+
+    tmpl.ExecuteTemplate(w, "orphans.html", pageData)
 }

@@ -1,0 +1,15 @@
+{{template "_header" .}}
+
+<h1>Orphaned Files</h1>
+
+{{if .Data}}
+<ul>
+  {{range .Data}}
+    <li>{{.}}</li>
+  {{end}}
+</ul>
+{{else}}
+<p>No orphaned files</p>
+{{end}}
+
+{{template "_footer"}}

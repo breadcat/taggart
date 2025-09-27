@@ -1,5 +1,6 @@
 document.getElementById("copy-btn").addEventListener("click", function() {
-    const text = document.getElementById("raw-url").textContent.trim();
+    const input = document.getElementById("raw-url");
+    const text = input.value.trim();
     const status = document.getElementById("copy-status");
 
     // Fallback approach using a temporary textarea

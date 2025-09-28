@@ -40,3 +40,4 @@ button#edit-description-btn {background: #007cba; color: white; padding: 6px 12p
 textarea#description-textarea {width: 100%; max-width: 600px; padding: 8px; border: 1px solid #ccc; border-radius: 3px; font-family: inherit; resize: vertical;}
 input.description-save {background: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;}
 button.description-cancel {background: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;}
+button.delete-tag {border:none; background:none; color:red; cursor:pointer; padding:0; margin-left:2px;}

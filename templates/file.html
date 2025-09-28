@@ -72,11 +72,14 @@
 
 <h3>Tags</h3>
 <ul>
-{{range $k, $v := .Data.File.Tags}}
-  <li>{{$k}}: {{$v}}
-    <form style="display:inline" method="post" action="/file/{{$.Data.File.ID}}/tag/{{$k}}/{{$v}}/delete">
-      <button type="submit">Remove</button>
-    </form>
+{{range $k, $vs := .Data.File.Tags}}
+  <li>
+    {{$k}}:
+    {{range $i, $v := $vs}}
+      {{if $i}}, {{end}}
+      <form method="post" action="/file/{{$.Data.File.ID}}/tag/{{$k}}/{{$v}}/delete" style="display:inline;"><button class="delete-tag" type="submit">[x]</button></form>
+      <a href="/tag/{{$k}}/{{$v}}">{{$v}}</a>
+    {{end}}
   </li>
 {{else}}
   <li>No tags yet</li>

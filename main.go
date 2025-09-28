@@ -32,7 +32,7 @@ type File struct {
 	EscapedFilename string
 	Path            string
 	Description     string
-	Tags            map[string]string
+	Tags            map[string][]string
 }
 
 type Config struct {
@@ -526,7 +526,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f.Tags = make(map[string]string)
+	f.Tags = make(map[string][]string)
 	rows, _ := db.Query(`
 		SELECT c.name, t.value
 		FROM tags t
@@ -536,7 +536,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var cat, val string
 		rows.Scan(&cat, &val)
-		f.Tags[cat] = val
+		f.Tags[cat] = append(f.Tags[cat], val)
 	}
 	rows.Close()
 

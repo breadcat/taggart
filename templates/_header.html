@@ -34,20 +34,9 @@
 </ul>
 
 <div id="search-container">
-<form method="get" action="/search"><input type="text" name="q" value="{{.Query}}" placeholder="Search..."><span id="searchToggle">[?]</span>
-</form>
+	<form method="get" action="/search"><input type="text" name="q" value="{{.Query}}" placeholder="Search..."></form>
 </div>
 </nav>
 
-  <div id="searchToggleContainer">
-    <h3>Search Examples:</h3>
-    <ul>
-        <li><code>*class*.jpg</code> - finds files containing "class" and ending with ".jpg"</li>
-        <li><code>photo*</code> - finds files starting with "photo"</li>
-        <li><code>*.pdf</code> - finds all PDF files</li>
-        <li><code>IMG_????_*.jpg</code> - finds files like "IMG_2023_vacation.jpg" (? matches single character)</li>
-        <li><code>*vacation*</code> - finds files containing "vacation" anywhere</li>
-    </ul>
-  </div>
-  <script src="/static/toggle-help.js" defer></script>
+
 {{end}}

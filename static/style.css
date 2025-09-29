@@ -20,10 +20,8 @@ nav ul{flex:1 1 auto;list-style:none}
 nav ul.sub-menu li a:first-letter{text-transform:capitalize}
 
 /* search bar */
-div#search-container form input {border: 1px solid gray; padding: 8px; margin-top: 7px}
-div#search-container form input{border:1px solid gray;padding:8px;margin-top:7px}
-div#searchToggleContainer{display:none;background-color:#2a2a2a}
-span#searchToggle{cursor:pointer;color:#add8e6;padding:8px}
+div#search-container form input{border:1px solid gray;margin: 8px;padding:8px}
+div#search-container form input:focus{border:none;background-color:#3a3a3a}
 
 /* gallery styling */
 div.gallery-item a{overflow:hidden;text-overflow:ellipsis}

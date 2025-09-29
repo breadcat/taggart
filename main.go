@@ -497,15 +497,34 @@ func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 		return
 	}
 
-	err = os.Rename(currentFile.Path, newPath)
-	if err != nil {
+	// Rename the main file
+	if err := os.Rename(currentFile.Path, newPath); err != nil {
 		renderError(w, "Failed to rename physical file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// Handle thumbnail if it exists
+	thumbOld := filepath.Join(config.UploadDir, currentFile.Filename+".jpg")
+	thumbNew := filepath.Join(config.UploadDir, newFilename+".jpg")
+
+	if _, err := os.Stat(thumbOld); err == nil {
+		// Thumbnail exists, rename it
+		if err := os.Rename(thumbOld, thumbNew); err != nil {
+			// If thumbnail rename fails, roll back the main file rename
+			_ = os.Rename(newPath, currentFile.Path)
+			renderError(w, "Failed to rename thumbnail: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Update DB
 	_, err = db.Exec("UPDATE files SET filename=?, path=? WHERE id=?", newFilename, newPath, fileID)
 	if err != nil {
-		os.Rename(newPath, currentFile.Path)
+		// Roll back both renames
+		_ = os.Rename(newPath, currentFile.Path)
+		if _, err := os.Stat(thumbNew); err == nil {
+			_ = os.Rename(thumbNew, thumbOld)
+		}
 		renderError(w, "Failed to update database", http.StatusInternalServerError)
 		return
 	}

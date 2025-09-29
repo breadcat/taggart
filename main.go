@@ -504,8 +504,8 @@ func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	}
 
 	// Handle thumbnail if it exists
-	thumbOld := filepath.Join(config.UploadDir, currentFile.Filename+".jpg")
-	thumbNew := filepath.Join(config.UploadDir, newFilename+".jpg")
+	thumbOld := filepath.Join(config.UploadDir, "thumbnails", currentFile.Filename+".jpg")
+	thumbNew := filepath.Join(config.UploadDir, "thumbnails", newFilename+".jpg")
 
 	if _, err := os.Stat(thumbOld); err == nil {
 		// Thumbnail exists, rename it

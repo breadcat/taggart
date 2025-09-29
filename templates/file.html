@@ -1,101 +1,120 @@
 {{template "_header" .}}
 <h2>File: {{.Data.File.Filename}}</h2>
 
-{{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
-  <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"></a><br>
-{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov"}}
-  <video id="videoPlayer" controls loop muted width="600">
-    <source src="/uploads/{{.Data.EscapedFilename}}">
-  </video><br>
-{{else}}
-  <a href="/uploads/{{.Data.EscapedFilename}}">Download file</a><br>
-{{end}}
+<div class="file-container">
 
-<script src="/static/timestamps.js" defer></script>
+<div class="file-sidebar">
 
-<div class="description-section">
-    <h3>Description</h3>
+    <details open>
+    <summary>Tags</summary>
+	<ul>
+	{{range $k, $vs := .Data.File.Tags}}
+	  <li>
+		{{$k}}:
+		{{range $i, $v := $vs}}
+		  {{if $i}}, {{end}}
+		  <form method="post" action="/file/{{$.Data.File.ID}}/tag/{{$k}}/{{$v}}/delete" style="display:inline;"><button class="text-button" type="submit">[x]</button></form>
+		  <a href="/tag/{{$k}}/{{$v}}">{{$v}}</a>
+		{{end}}
+	  </li>
+	{{else}}
+	  <li>No tags yet</li>
+	{{end}}
+	</ul>
+	</details>
 
-    <!-- Display Mode -->
-    <div id="description-display" data-original-description="{{.Data.File.Description}}">
-        {{if .Data.File.Description}}
-            <div id="current-description" >{{.Data.File.Description}}</div>
-        {{else}}
-            <div id="no-description">No description set</div>
-        {{end}}
-        <button id="edit-description-btn" onclick="toggleDescriptionEdit()">
-            {{if .Data.File.Description}}Edit Description{{else}}Add Description{{end}}
-        </button>
-    </div>
+    <details>
+    <summary>Add Tags</summary>
+		<form method="post">
+		  Category: <input type="text" name="category" list="categories"><br>
+		  <datalist id="categories">
+			{{range .Data.Categories}}
+			  <option value="{{.}}">
+			{{end}}
+		  </datalist>
+		  Value: <input type="text" name="value"><br>
+		  <button type="submit">Add Tag</button>
+		</form>
+	</details>
 
-    <!-- Edit Mode (initially hidden) -->
-    <div id="description-edit" style="display: none;">
-        <form method="post">
-            <input type="hidden" name="action" value="update_description">
-            <div>
-                <textarea
-                    id="description-textarea"
-                    name="description"
-                    rows="6"
-                    maxlength="2048"
-                    placeholder="Enter description..."
-                >{{.Data.File.Description}}</textarea>
-            </div>
-            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
-                <input class="description-save" type="submit" value="Save Description">
-                <button class="description-cancel" type="button" onclick="cancelDescriptionEdit()">Cancel</button>
-            </div>
-        </form>
-    </div>
+    <details>
+    <summary>Raw URL</summary>
+		<input id="raw-url" value="http://{{.IP}}:{{.Port}}/uploads/{{.Data.EscapedFilename}}"><br>
+		<button id="copy-btn" style="margin-top: 5px;">Copy to Clipboard</button>
+		<span id="copy-status" style="margin-left: 10px;"></span>
+		<script src="/static/copy-link.js" defer></script>
+	</details>
+
+    <details>
+    <summary>File Actions</summary>
+
+		<script src="/static/rename-file.js" defer></script>
+		<form id="renameForm-{{.Data.File.ID}}" method="post" action="/file/{{.Data.File.ID}}/rename" style="display:inline;">
+		  <input type="hidden" name="newfilename" value="{{.Data.File.Filename}}">
+		  <button type="button" class="text-button rename-button"
+			data-file-id="{{.Data.File.ID}}"
+			data-current-name="{{.Data.File.Filename}}">
+			[ Rename File ]
+		  </button>
+		</form>
+		<br />
+		<form method="post" action="/file/{{.Data.File.ID}}/delete" style="display:inline;">
+		  <button type="submit" onclick="return confirm('Are you sure you want to delete this file? This cannot be undone!')" class="text-button">[ Delete File ]</button>
+		</form>
+	</details>
 </div>
 
-<script src="/static/description.js" defer></script>
+<div class="file-content">
 
-<h3>Raw URL</h3>
-<input id="raw-url" value="http://{{.IP}}:{{.Port}}/uploads/{{.Data.EscapedFilename}}">
-<button id="copy-btn" style="margin-top: 5px;">Copy to Clipboard</button>
-<span id="copy-status" style="margin-left: 10px;"></span>
-<script src="/static/copy-link.js" defer></script>
+	{{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
+	  <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"></a><br>
+	{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov" ".m4v"}}
+	  <video id="videoPlayer" controls loop muted width="600">
+		<source src="/uploads/{{.Data.EscapedFilename}}">
+	  </video><br>
+	{{else}}
+	  <a href="/uploads/{{.Data.EscapedFilename}}">Download file</a><br>
+	{{end}}
 
+	<div class="description-section">
+		<h3>Description</h3>
 
+		<!-- Display Mode -->
+		<div id="description-display" data-original-description="{{.Data.File.Description}}">
+			{{if .Data.File.Description}}
+				<div id="current-description" >{{.Data.File.Description}}</div>
+			{{else}}
+				<div id="no-description">No description set</div>
+			{{end}}
+			<button id="edit-description-btn" onclick="toggleDescriptionEdit()">
+				{{if .Data.File.Description}}Edit Description{{else}}Add Description{{end}}
+			</button>
+		</div>
 
-<h3>File Actions</h3>
-<form method="post" action="/file/{{.Data.File.ID}}/rename" style="display:inline-block; margin-right: 20px;">
-  New filename: <input type="text" name="newfilename" value="{{.Data.File.Filename}}" required style="width:300px"><br>
-  <small>Include file extension (e.g., "new-name.jpg")</small><br><br>
-  <button type="submit" onclick="return confirm('Are you sure you want to rename this file?')">Rename File</button>
-</form>
+		<!-- Edit Mode (initially hidden) -->
+		<div id="description-edit" style="display: none;">
+			<form method="post">
+				<input type="hidden" name="action" value="update_description">
+				<div>
+					<textarea
+						id="description-textarea"
+						name="description"
+						rows="6"
+						maxlength="2048"
+						placeholder="Enter description..."
+					>{{.Data.File.Description}}</textarea>
+				</div>
+				<div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+					<input class="description-save" type="submit" value="Save Description">
+					<button class="description-cancel" type="button" onclick="cancelDescriptionEdit()">Cancel</button>
+				</div>
+			</form>
+		</div>
+	</div>
 
-<form method="post" action="/file/{{.Data.File.ID}}/delete" style="display:inline-block;">
-  <button type="submit" onclick="return confirm('Are you sure you want to delete this file? This cannot be undone!')" style="background-color: #dc3545; color: white;">Delete File</button>
-</form>
+	<script src="/static/description.js" defer></script>
+	<script src="/static/timestamps.js" defer></script>
 
-<h3>Tags</h3>
-<ul>
-{{range $k, $vs := .Data.File.Tags}}
-  <li>
-    {{$k}}:
-    {{range $i, $v := $vs}}
-      {{if $i}}, {{end}}
-      <form method="post" action="/file/{{$.Data.File.ID}}/tag/{{$k}}/{{$v}}/delete" style="display:inline;"><button class="delete-tag" type="submit">[x]</button></form>
-      <a href="/tag/{{$k}}/{{$v}}">{{$v}}</a>
-    {{end}}
-  </li>
-{{else}}
-  <li>No tags yet</li>
-{{end}}
-</ul>
-
-<h3>Assign New Tag</h3>
-<form method="post">
-  Category: <input type="text" name="category" list="categories"><br>
-  <datalist id="categories">
-    {{range .Data.Categories}}
-      <option value="{{.}}">
-    {{end}}
-  </datalist>
-  Value: <input type="text" name="value"><br>
-  <button type="submit">Add Tag</button>
-</form>
+</div>
 
 {{template "_footer"}}

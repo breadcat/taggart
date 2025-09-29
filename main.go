@@ -1277,7 +1277,7 @@ func processVideoFile(tempPath, finalPath string) (string, string, error) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(finalPath))
-	if ext == ".mp4" || ext == ".mov" || ext == ".avi" || ext == ".mkv" || ext == ".webm" {
+	if ext == ".mp4" || ext == ".mov" || ext == ".avi" || ext == ".mkv" || ext == ".webm" || ext == ".m4v" {
 		if err := generateThumbnail(finalPath, config.UploadDir, filepath.Base(finalPath)); err != nil {
 			log.Printf("Warning: could not generate thumbnail: %v", err)
 		}

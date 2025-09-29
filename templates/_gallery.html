@@ -2,7 +2,7 @@
 	<div class="gallery-item">
 	<a href="/file/{{.ID}}" title="{{.Filename}}">
     {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px">
-    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov"}}<div class="gallery-video"><img src="/uploads/thumbnails/{{.EscapedFilename}}.jpg" style="width: 100%; display: block;" /><div class="play-button"></div></div>
+    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov" ".m4v"}}<div class="gallery-video"><img src="/uploads/thumbnails/{{.EscapedFilename}}.jpg" style="width: 100%; display: block;" /><div class="play-button"></div></div>
     {{end}}
     <br>{{.Filename}}</a>
     </div>

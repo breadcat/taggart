@@ -42,7 +42,7 @@ if [[ -n "$target_file" ]]; then
 
     generate_thumbnail "$file_path" "$thumb" "$override_time"
 else
-    find "$upload_dir" -maxdepth 1 -type f \( -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mov" -o -iname "*.avi" -o -iname "*.mkv" \) | while read -r file; do
+    find "$upload_dir" -maxdepth 1 -type f \( -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mov" -o -iname "*.avi" -o -iname "*.mkv" -o -iname "*.m4v" \) | while read -r file; do
         filename=$(basename "$file")
         thumb="$thumb_dir/${filename}.jpg"
 

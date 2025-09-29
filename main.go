@@ -212,16 +212,59 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	if query != "" {
 		sqlPattern := strings.ReplaceAll(query, "*", "%")
 		sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
+		sqlPattern = strings.ToLower(sqlPattern)
 
-		var err error
-		files, err = queryFilesWithTags(
-			"SELECT id, filename, path, COALESCE(description, '') as description FROM files WHERE filename LIKE ? OR description LIKE ? ORDER BY filename",
-			sqlPattern, sqlPattern,
-		)
+		// Query: join files → file_tags → tags → categories
+		rows, err := db.Query(`
+			SELECT f.id, f.filename, f.path, COALESCE(f.description, '') AS description,
+			       c.name AS category, t.value AS tag
+			FROM files f
+			LEFT JOIN file_tags ft ON ft.file_id = f.id
+			LEFT JOIN tags t ON t.id = ft.tag_id
+			LEFT JOIN categories c ON c.id = t.category_id
+			WHERE LOWER(f.filename) LIKE ? OR LOWER(f.description) LIKE ? OR LOWER(t.value) LIKE ?
+			ORDER BY f.filename
+		`, sqlPattern, sqlPattern, sqlPattern)
 		if err != nil {
-			renderError(w, "Search failed", http.StatusInternalServerError)
+			renderError(w, "Search failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		defer rows.Close()
+
+		// Aggregate tags per file
+		fileMap := make(map[int]*File)
+		for rows.Next() {
+			var id int
+			var filename, path, description, category, tag sql.NullString
+
+			if err := rows.Scan(&id, &filename, &path, &description, &category, &tag); err != nil {
+				renderError(w, "Failed to read search results: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			f, exists := fileMap[id]
+			if !exists {
+				f = &File{
+					ID:              id,
+					Filename:        filename.String,
+					Path:            path.String,
+					EscapedFilename: url.PathEscape(filename.String),
+					Description:     description.String,
+					Tags:            make(map[string][]string), // initialize map
+				}
+				fileMap[id] = f
+			}
+
+			if category.Valid && tag.Valid && tag.String != "" {
+				f.Tags[category.String] = append(f.Tags[category.String], tag.String)
+			}
+		}
+
+		// Convert map to slice
+		for _, f := range fileMap {
+			files = append(files, *f)
+		}
+
 		searchTitle = fmt.Sprintf("Search Results for: %s", query)
 	} else {
 		searchTitle = "Search Files"

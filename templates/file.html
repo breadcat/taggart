@@ -10,9 +10,9 @@
 	<ul>
 	{{range $k, $vs := .Data.File.Tags}}
 	  <li>
-		{{$k}}:
+		<span class="file-tag-category">{{$k}}:</span><br>
 		{{range $i, $v := $vs}}
-		  {{if $i}}, {{end}}
+		  {{if $i}}<br> {{end}}
 		  <form method="post" action="/file/{{$.Data.File.ID}}/tag/{{$k}}/{{$v}}/delete" style="display:inline;"><button class="text-button" type="submit">[x]</button></form>
 		  <a href="/tag/{{$k}}/{{$v}}">{{$v}}</a>
 		{{end}}
@@ -33,14 +33,14 @@
 			{{end}}
 		  </datalist>
 		  Value: <input type="text" name="value"><br>
-		  <button type="submit">Add Tag</button>
+		  <button class="text-button" type="submit">[ Add Tag ]</button>
 		</form>
 	</details>
 
     <details>
     <summary>Raw URL</summary>
 		<input id="raw-url" value="http://{{.IP}}:{{.Port}}/uploads/{{.Data.EscapedFilename}}"><br>
-		<button id="copy-btn" style="margin-top: 5px;">Copy to Clipboard</button>
+		<button class="text-button" id="copy-btn" style="margin-top: 5px;">[ Copy ]</button>
 		<span id="copy-status" style="margin-left: 10px;"></span>
 		<script src="/static/copy-link.js" defer></script>
 	</details>
@@ -68,7 +68,7 @@
 
 	{{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
 	  <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"></a><br>
-	{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov" ".m4v"}}
+	{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov" ".m4v" ".avi"}}
 	  <video id="videoPlayer" controls loop muted width="600">
 		<source src="/uploads/{{.Data.EscapedFilename}}">
 	  </video><br>

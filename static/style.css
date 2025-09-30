@@ -1,23 +1,26 @@
 /* main body styling */
 body,div#search-container form input{background:#1a1a1a;color:#cfcfcf;font-family:sans-serif;margin:0}
 a{color:#add8e6;text-decoration:none}
-a:hover{text-decoration:underline}
 
 /* nav menu */
-nav{display:flex;border-bottom:1px solid gray;height:50px}
+nav ul{flex:1 1 auto;list-style:none}
+nav {display:flex; border-bottom:1px solid gray;height:50px;margin:0;padding:0; position: sticky; top: 0; z-index: 100; background-color:#1a1a1a}
+nav ul {margin: 0; padding: 0}
+nav ul li{border-right:1px solid gray}
 nav ul li a,nav ul li strong{padding:15px;display:block}
 nav ul li a:hover{background-color:#2a2a2a}
-nav ul li ul li a,nav>ul>li>a{display:block;padding:.5em 1em;text-decoration:none}
-nav ul li ul li a{color:#add8e6;background:#1a1a1a}
+nav ul li ul li a,nav>ul>li>a{display:block}
 nav ul li ul li ul li a{white-space:nowrap}
 nav ul li ul li ul{top:0;left:100%;display:none}
 nav ul li ul li,nav>ul>li{position:relative}
 nav ul li ul li:hover>ul,nav ul li:hover>ul{display:block}
 nav ul li ul{display:none;position:absolute;top:100%;left:0;z-index:1000;padding:0}
-nav ul li{border-right:1px solid gray}
-nav ul,nav ul li{margin:0;padding:0}
-nav ul{flex:1 1 auto;list-style:none}
+nav ul.sub-menu, nav ul.sub-menu li ul {border: 1px solid gray}
+nav ul.sub-menu li {border-right: none}
 nav ul.sub-menu li a:first-letter{text-transform:capitalize}
+nav ul.sub-menu li a{color:#add8e6;background:#1a1a1a; min-width: 110px}
+nav ul.sub-menu li ul li a{min-width: 170px}
+nav ul.sub-menu li a:hover{background:#2a2a2a}
 
 /* search bar */
 div#search-container form {border-left:1px solid gray}
@@ -39,3 +42,11 @@ button#edit-description-btn {background: #007cba; color: white; padding: 6px 12p
 textarea#description-textarea {width: 100%; max-width: 600px; padding: 8px; border: 1px solid #ccc; border-radius: 3px; font-family: inherit; resize: vertical;}
 input.description-save {background: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;}
 button.description-cancel {background: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;}
+button.text-button {border:none; background:none; color:#add8e6; cursor:pointer; padding:0; margin-left:2px;}
+div.file-container {display: flex}
+div.file-sidebar {flex: 0 0 auto; min-width: 15em}
+span.file-tag-category,div.file-sidebar details ul li a {text-transform:capitalize}
+
+details > summary {list-style: none; cursor: pointer; }
+details > summary::before {content: "[+]"; display: inline-block; width: 2ch; margin-right: 0.5ch;}
+details[open] > summary::before {content: "[-]";}

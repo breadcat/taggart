@@ -540,6 +540,14 @@ func fileDeleteHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 		log.Printf("Warning: Failed to delete physical file %s: %v", currentFile.Path, err)
 	}
 
+	// Delete thumbnail if it exists
+	thumbPath := filepath.Join(config.UploadDir, "thumbnails", currentFile.Filename+".jpg")
+	if _, err := os.Stat(thumbPath); err == nil {
+		if err := os.Remove(thumbPath); err != nil {
+			log.Printf("Warning: Failed to delete thumbnail %s: %v", thumbPath, err)
+		}
+	}
+
 	http.Redirect(w, r, "/?deleted="+currentFile.Filename, http.StatusSeeOther)
 }
 

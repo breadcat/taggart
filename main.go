@@ -1264,11 +1264,7 @@ func sanitizeFilename(filename string) string {
 	if filename == "" {
 		return "file"
 	}
-
-	filename = strings.ReplaceAll(filename, "/", "_")
-	filename = strings.ReplaceAll(filename, "\\", "_")
-	filename = strings.ReplaceAll(filename, "..", "_")
-
+	filename = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(filename, "/", "_"), "\\", "_"), "..", "_")
 	if filename == "" {
 		return "file"
 	}
@@ -1412,26 +1408,12 @@ func generateThumbnail(videoPath, uploadDir, filename string) error {
 
 	thumbPath := filepath.Join(thumbDir, filename+".jpg")
 
-	// Use ffmpeg to grab a frame in the first 5s, resize width to 400px
-	cmd := exec.Command("ffmpeg", "-y",
-		"-ss", "00:00:05", // seek to 5s
-		"-i", videoPath,
-		"-vframes", "1",
-		"-vf", "scale=400:-1",
-		thumbPath,
-	)
-
+	cmd := exec.Command("ffmpeg", "-y", "-ss", "00:00:05", "-i", videoPath, "-vframes", "1", "-vf", "scale=400:-1", thumbPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		// fallback: try frame 0 if grabbing at 5s fails
-		cmd := exec.Command("ffmpeg", "-y",
-			"-i", videoPath,
-			"-vframes", "1",
-			"-vf", "scale=400:-1",
-			thumbPath,
-		)
+		cmd := exec.Command("ffmpeg", "-y", "-i", videoPath, "-vframes", "1", "-vf", "scale=400:-1", thumbPath)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err2 := cmd.Run(); err2 != nil {

@@ -73,6 +73,15 @@
 		<source src="/uploads/{{.Data.EscapedFilename}}">
 	  </video><br>
 	  <script src="/static/timestamps.js" defer></script>
+	{{else if hasAnySuffix .Data.File.Filename ".txt" ".md"}}
+	  <div id="text-viewer-container" style="max-width:800px; margin:1em 0;">
+		<div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+		  <button onclick="toggleLineNumbers()" class="text-button">[ Line Numbers ]</button>
+		  <button onclick="toggleFullscreen()" class="text-button">[ Fullscreen ]</button>
+		</div>
+		<pre id="text-viewer" data-filename="{{.Data.EscapedFilename}}" style="white-space:pre-wrap; overflow:auto; background:#111; color:#eee; padding:10px; border-radius:8px; max-height:500px;">Loading...</pre>
+	  </div>
+	  <script src="/static/text-viewer.js"></script>
 	{{else}}
 	  <a href="/uploads/{{.Data.EscapedFilename}}">Download file</a><br>
 	{{end}}

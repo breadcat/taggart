@@ -29,6 +29,7 @@ div#search-container form input:focus{border:none;background-color:#3a3a3a}
 
 /* gallery styling */
 div.gallery-item a{overflow:hidden;text-overflow:ellipsis}
+div.gallery-item a svg{filter: invert(100%);}
 div.gallery-item,div.gallery-item a,nav ul li,nav>ul>li{display:inline-block}
 div.gallery-item,div.gallery-item a{width:250px;display:inline-block}
 div.play-button {position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 0; height: 0; border-left: 15px solid white; border-top: 10px solid transparent; border-bottom: 10px solid transparent; opacity: 0.8;}
@@ -50,3 +51,9 @@ span.file-tag-category,div.file-sidebar details ul li a {text-transform:capitali
 details > summary {list-style: none; cursor: pointer; }
 details > summary::before {content: "[+]"; display: inline-block; width: 2ch; margin-right: 0.5ch;}
 details[open] > summary::before {content: "[-]";}
+
+/* text viewer */
+pre#text-viewer{font-family:serif;font-size:25px}
+#text-viewer-container:fullscreen{margin:0;max-width:75%;margin:auto;height:100vh;padding:1em;background:#000;display:flex;flex-direction:column}
+#text-viewer-container:fullscreen #text-viewer{flex:1;max-height:none!important;max-width:75%;margin:0;height:100%}
+#text-viewer-container:fullscreen>div{flex-shrink:0}

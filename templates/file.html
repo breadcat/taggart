@@ -68,7 +68,7 @@
 
 	{{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
 	  <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" style="max-width:400px"></a><br>
-	{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov" ".m4v" ".avi"}}
+	{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov" ".m4v"}}
 	  <video id="videoPlayer" controls loop muted width="600">
 		<source src="/uploads/{{.Data.EscapedFilename}}">
 	  </video><br>

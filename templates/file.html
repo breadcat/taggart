@@ -72,6 +72,7 @@
 	  <video id="videoPlayer" controls loop muted width="600">
 		<source src="/uploads/{{.Data.EscapedFilename}}">
 	  </video><br>
+	  <script src="/static/timestamps.js" defer></script>
 	{{else}}
 	  <a href="/uploads/{{.Data.EscapedFilename}}">Download file</a><br>
 	{{end}}
@@ -113,7 +114,6 @@
 	</div>
 
 	<script src="/static/description.js" defer></script>
-	<script src="/static/timestamps.js" defer></script>
 
 </div>
 

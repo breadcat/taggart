@@ -709,11 +709,9 @@ func tagsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/tag/"), "/")
-	if len(pathParts)%2 != 0 {
-		renderError(w, "Invalid tag filter path", http.StatusBadRequest)
-		return
-	}
+	// Split by /and/tag/ to get individual tag pairs
+	fullPath := strings.TrimPrefix(r.URL.Path, "/tag/")
+	tagPairs := strings.Split(fullPath, "/and/tag/")
 
 	type filter struct {
 		Category string
@@ -721,8 +719,13 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var filters []filter
-	for i := 0; i < len(pathParts); i += 2 {
-		filters = append(filters, filter{pathParts[i], pathParts[i+1]})
+	for _, pair := range tagPairs {
+		parts := strings.Split(pair, "/")
+		if len(parts) != 2 {
+			renderError(w, "Invalid tag filter path", http.StatusBadRequest)
+			return
+		}
+		filters = append(filters, filter{parts[0], parts[1]})
 	}
 
 	query := `SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description FROM files f WHERE 1=1`

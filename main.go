@@ -70,8 +70,6 @@ type Pagination struct {
 	PerPage     int
 }
 
-package main
-
 func getOrCreateCategoryAndTag(category, value string) (int, int, error) {
 	var catID int
 	err := db.QueryRow("SELECT id FROM categories WHERE name=?", category).Scan(&catID)
@@ -564,20 +562,47 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, err := r.FormFile("file")
+	// Parse the multipart form (with max memory limit, e.g., 32MB)
+	err := r.ParseMultipartForm(32 << 20)
 	if err != nil {
-		renderError(w, "Failed to read uploaded file", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	id, warningMsg, err := processUpload(file, header.Filename)
-	if err != nil {
-		renderError(w, err.Error(), http.StatusInternalServerError)
+		renderError(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 
-	redirectWithWarning(w, r, fmt.Sprintf("/file/%d", id), warningMsg)
+	files := r.MultipartForm.File["file"]
+	if len(files) == 0 {
+		renderError(w, "No files uploaded", http.StatusBadRequest)
+		return
+	}
+
+	var warnings []string
+
+	// Process each file
+	for _, fileHeader := range files {
+		file, err := fileHeader.Open()
+		if err != nil {
+			renderError(w, "Failed to open uploaded file", http.StatusInternalServerError)
+			return
+		}
+		defer file.Close()
+
+		_, warningMsg, err := processUpload(file, fileHeader.Filename)
+		if err != nil {
+			renderError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if warningMsg != "" {
+			warnings = append(warnings, warningMsg)
+		}
+	}
+
+	var warningMsg string
+	if len(warnings) > 0 {
+		warningMsg = strings.Join(warnings, "; ")
+	}
+
+	redirectWithWarning(w, r, "/untagged", warningMsg)
 }
 
 func redirectWithWarning(w http.ResponseWriter, r *http.Request, baseURL, warningMsg string) {

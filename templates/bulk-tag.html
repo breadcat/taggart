@@ -76,7 +76,7 @@
 		<details><summary>Recent Files (for reference)</summary>
                 {{range .Data.RecentFiles}}
                 <div class="file-item">
-                    <span class="file-id">ID {{.ID}}:</span> {{.Filename}}
+                    <span class="file-id">ID {{.ID}}:</span> <a href="/file/{{.ID}}" title="{{.Filename}}">{{.Filename}}</a>
                 </div>
                 {{else}}
                 <div class="file-item">No files found</div>

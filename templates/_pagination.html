@@ -1,0 +1,36 @@
+{{define "_pagination"}}
+
+{{if .Pagination}}
+{{if gt .Pagination.TotalPages 1}}
+<div class="pagination">
+  {{if .Pagination.HasPrev}}
+    <a href="?page=1">&laquo;&laquo; First</a>
+    <a href="?page={{.Pagination.PrevPage}}">&laquo; Previous</a>
+  {{else}}
+    <span class="disabled">&laquo;&laquo; First</span>
+    <span class="disabled">&laquo; Previous</span>
+  {{end}}
+
+  <span class="page-info">
+    Page
+    <input type="number"
+           id="pageInput"
+           value="{{.Pagination.CurrentPage}}"
+           min="1"
+           max="{{.Pagination.TotalPages}}"
+           style="width: 60px; text-align: center;"
+           onkeypress="if(event.key === 'Enter') { var page = parseInt(this.value); if(page >= 1 && page <= {{.Pagination.TotalPages}}) { window.location.href = '?page=' + page; } }">
+    of {{.Pagination.TotalPages}}
+  </span>
+
+  {{if .Pagination.HasNext}}
+    <a href="?page={{.Pagination.NextPage}}">Next &raquo;</a>
+    <a href="?page={{.Pagination.TotalPages}}">Last &raquo;&raquo;</a>
+  {{else}}
+    <span class="disabled">Next &raquo;</span>
+    <span class="disabled">Last &raquo;&raquo;</span>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+{{end}}

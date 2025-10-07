@@ -869,6 +869,23 @@ func tagsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
+	// Get page number from query params
+	pageStr := r.URL.Query().Get("page")
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	// Get per page from config
+	perPage := 50
+	if config.ItemsPerPage != "" {
+		if pp, err := strconv.Atoi(config.ItemsPerPage); err == nil && pp > 0 {
+			perPage = pp
+		}
+	}
+
 	// Split by /and/tag/ to get individual tag pairs
 	fullPath := strings.TrimPrefix(r.URL.Path, "/tag/")
 	tagPairs := strings.Split(fullPath, "/and/tag/")
@@ -888,6 +905,42 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		filters = append(filters, filter{parts[0], parts[1]})
 	}
 
+	// Build count query first
+	countQuery := `SELECT COUNT(DISTINCT f.id) FROM files f WHERE 1=1`
+	countArgs := []interface{}{}
+	for _, f := range filters {
+		if f.Value == "unassigned" {
+			countQuery += `
+				AND NOT EXISTS (
+					SELECT 1
+					FROM file_tags ft
+					JOIN tags t ON ft.tag_id = t.id
+					JOIN categories c ON c.id = t.category_id
+					WHERE ft.file_id = f.id AND c.name = ?
+				)`
+			countArgs = append(countArgs, f.Category)
+		} else {
+			countQuery += `
+				AND EXISTS (
+					SELECT 1
+					FROM file_tags ft
+					JOIN tags t ON ft.tag_id = t.id
+					JOIN categories c ON c.id = t.category_id
+					WHERE ft.file_id = f.id AND c.name = ? AND t.value = ?
+				)`
+			countArgs = append(countArgs, f.Category, f.Value)
+		}
+	}
+
+	// Get total count
+	var total int
+	err := db.QueryRow(countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		renderError(w, "Failed to count files", http.StatusInternalServerError)
+		return
+	}
+
+	// Build main query with pagination
 	query := `SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description FROM files f WHERE 1=1`
 	args := []interface{}{}
 	for _, f := range filters {
@@ -914,7 +967,16 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	files, _ := queryFilesWithTags(query, args...)
+	// Add pagination
+	offset := (page - 1) * perPage
+	query += ` ORDER BY f.id DESC LIMIT ? OFFSET ?`
+	args = append(args, perPage, offset)
+
+	files, err := queryFilesWithTags(query, args...)
+	if err != nil {
+		renderError(w, "Failed to fetch files", http.StatusInternalServerError)
+		return
+	}
 
 	var titleParts []string
 	for _, f := range filters {
@@ -922,10 +984,10 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	title := "Tagged: " + strings.Join(titleParts, ", ")
 
-	pageData := buildPageData(title, struct {
+	pageData := buildPageDataWithPagination(title, struct {
 		Tagged   []File
 		Untagged []File
-	}{files, nil})
+	}{files, nil}, page, total, perPage)
 
 	renderTemplate(w, "list.html", pageData)
 }

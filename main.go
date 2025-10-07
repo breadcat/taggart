@@ -50,14 +50,27 @@ type TagDisplay struct {
 }
 
 type PageData struct {
-	Title string
-	Data  interface{}
-	Query string
-	IP    string
-	Port  string
-	Files []File
-	Tags  map[string][]TagDisplay
+	Title      string
+	Data       interface{}
+	Query      string
+	IP         string
+	Port       string
+	Files      []File
+	Tags       map[string][]TagDisplay
+	Pagination *Pagination
 }
+
+type Pagination struct {
+	CurrentPage int
+	TotalPages  int
+	HasPrev     bool
+	HasNext     bool
+	PrevPage    int
+	NextPage    int
+	PerPage     int
+}
+
+package main
 
 func getOrCreateCategoryAndTag(category, value string) (int, int, error) {
 	var catID int
@@ -119,6 +132,26 @@ func getTaggedFiles() ([]File, error) {
 	`)
 }
 
+func getTaggedFilesPaginated(page, perPage int) ([]File, int, error) {
+	// Get total count
+	var total int
+	err := db.QueryRow(`SELECT COUNT(DISTINCT f.id) FROM files f JOIN file_tags ft ON ft.file_id = f.id`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * perPage
+	files, err := queryFilesWithTags(`
+		SELECT DISTINCT f.id, f.filename, f.path, COALESCE(f.description, '') as description
+		FROM files f
+		JOIN file_tags ft ON ft.file_id = f.id
+		ORDER BY f.id DESC
+		LIMIT ? OFFSET ?
+	`, perPage, offset)
+
+	return files, total, err
+}
+
 func getUntaggedFiles() ([]File, error) {
 	return queryFilesWithTags(`
 		SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description
@@ -129,9 +162,53 @@ func getUntaggedFiles() ([]File, error) {
 	`)
 }
 
+func getUntaggedFilesPaginated(page, perPage int) ([]File, int, error) {
+	// Get total count
+	var total int
+	err := db.QueryRow(`SELECT COUNT(*) FROM files f LEFT JOIN file_tags ft ON ft.file_id = f.id WHERE ft.file_id IS NULL`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * perPage
+	files, err := queryFilesWithTags(`
+		SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description
+		FROM files f
+		LEFT JOIN file_tags ft ON ft.file_id = f.id
+		WHERE ft.file_id IS NULL
+		ORDER BY f.id DESC
+		LIMIT ? OFFSET ?
+	`, perPage, offset)
+
+	return files, total, err
+}
+
 func buildPageData(title string, data interface{}) PageData {
 	tagMap, _ := getTagData()
 	return PageData{Title: title, Data: data, Tags: tagMap}
+}
+
+func buildPageDataWithPagination(title string, data interface{}, page, total, perPage int) PageData {
+	pd := buildPageData(title, data)
+	pd.Pagination = calculatePagination(page, total, perPage)
+	return pd
+}
+
+func calculatePagination(page, total, perPage int) *Pagination {
+	totalPages := (total + perPage - 1) / perPage
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	return &Pagination{
+		CurrentPage: page,
+		TotalPages:  totalPages,
+		HasPrev:     page > 1,
+		HasNext:     page < totalPages,
+		PrevPage:    page - 1,
+		NextPage:    page + 1,
+		PerPage:     perPage,
+	}
 }
 
 func buildPageDataWithIP(title string, data interface{}) PageData {
@@ -320,38 +397,56 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func processUpload(src io.Reader, filename string) (int64, string, error) {
-	finalFilename, finalPath, err := checkFileConflictStrict(filename)
-	if err != nil {
-		return 0, "", err
-	}
+    finalFilename, finalPath, err := checkFileConflictStrict(filename)
+    if err != nil {
+        return 0, "", err
+    }
 
-	tempPath := finalPath + ".tmp"
-	tempFile, err := os.Create(tempPath)
-	if err != nil {
-		return 0, "", fmt.Errorf("failed to create temp file: %v", err)
-	}
+    tempPath := finalPath + ".tmp"
+    tempFile, err := os.Create(tempPath)
+    if err != nil {
+        return 0, "", fmt.Errorf("failed to create temp file: %v", err)
+    }
 
-	_, err = io.Copy(tempFile, src)
-	tempFile.Close()
-	if err != nil {
-		os.Remove(tempPath)
-		return 0, "", fmt.Errorf("failed to copy file data: %v", err)
-	}
+    _, err = io.Copy(tempFile, src)
+    tempFile.Close()
+    if err != nil {
+        os.Remove(tempPath)
+        return 0, "", fmt.Errorf("failed to copy file data: %v", err)
+    }
 
-	processedPath, warningMsg, err := processVideoFile(tempPath, finalPath)
-	if err != nil {
-		os.Remove(tempPath)
-		return 0, "", err
-	}
+    ext := strings.ToLower(filepath.Ext(filename))
+    videoExts := map[string]bool{
+        ".mp4": true, ".mov": true, ".avi": true,
+        ".mkv": true, ".webm": true, ".m4v": true,
+    }
 
-	id, err := saveFileToDatabase(finalFilename, processedPath)
-	if err != nil {
-		os.Remove(processedPath)
-		return 0, "", err
-	}
+    var processedPath string
+    var warningMsg string
 
-	return id, warningMsg, nil
+    if videoExts[ext] {
+        processedPath, warningMsg, err = processVideoFile(tempPath, finalPath)
+        if err != nil {
+            os.Remove(tempPath)
+            return 0, "", err
+        }
+    } else {
+        // Non-video → just rename temp file to final
+        if err := os.Rename(tempPath, finalPath); err != nil {
+            return 0, "", fmt.Errorf("failed to move file: %v", err)
+        }
+        processedPath = finalPath
+    }
+
+    id, err := saveFileToDatabase(finalFilename, processedPath)
+    if err != nil {
+        os.Remove(processedPath)
+        return 0, "", err
+    }
+
+    return id, warningMsg, nil
 }
+
 
 func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -405,20 +500,60 @@ func uploadFromURLHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	tagged, _ := getTaggedFiles()
-	untagged, _ := getUntaggedFiles()
+	// Get page number from query params
+	pageStr := r.URL.Query().Get("page")
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
 
-	pageData := buildPageData("Home", struct {
+	// Get per page from config
+	perPage := 50
+	if config.ItemsPerPage != "" {
+		if pp, err := strconv.Atoi(config.ItemsPerPage); err == nil && pp > 0 {
+			perPage = pp
+		}
+	}
+
+	tagged, taggedTotal, _ := getTaggedFilesPaginated(page, perPage)
+	untagged, untaggedTotal, _ := getUntaggedFilesPaginated(page, perPage)
+
+	// Use the larger total for pagination
+	total := taggedTotal
+	if untaggedTotal > total {
+		total = untaggedTotal
+	}
+
+	pageData := buildPageDataWithPagination("Home", struct {
 		Tagged   []File
 		Untagged []File
-	}{tagged, untagged})
+	}{tagged, untagged}, page, total, perPage)
 
 	renderTemplate(w, "list.html", pageData)
 }
 
 func untaggedFilesHandler(w http.ResponseWriter, r *http.Request) {
-	files, _ := getUntaggedFiles()
-	pageData := buildPageData("Untagged Files", files)
+	// Get page number from query params
+	pageStr := r.URL.Query().Get("page")
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	// Get per page from config
+	perPage := 50
+	if config.ItemsPerPage != "" {
+		if pp, err := strconv.Atoi(config.ItemsPerPage); err == nil && pp > 0 {
+			perPage = pp
+		}
+	}
+
+	files, total, _ := getUntaggedFilesPaginated(page, perPage)
+	pageData := buildPageDataWithPagination("Untagged Files", files, page, total, perPage)
 	renderTemplate(w, "untagged.html", pageData)
 }
 

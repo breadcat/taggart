@@ -3,12 +3,9 @@
 
 {{if .Data.Tagged}}
 <h2>Tagged Files</h2>
-
 <div class="gallery">
 {{range .Data.Tagged}}
-
 {{template "_gallery" .}}
-
 {{else}}
   <p>No tagged files yet.</p>
 {{end}}
@@ -24,6 +21,26 @@
   <li>No untagged files.</li>
 {{end}}
 </div>
+{{end}}
+
+{{if .Pagination}}
+{{if gt .Pagination.TotalPages 1}}
+<div class="pagination">
+  {{if .Pagination.HasPrev}}
+    <a href="?page={{.Pagination.PrevPage}}">&laquo; Previous</a>
+  {{else}}
+    <span class="disabled">&laquo; Previous</span>
+  {{end}}
+
+  <span class="page-info">Page {{.Pagination.CurrentPage}} of {{.Pagination.TotalPages}}</span>
+
+  {{if .Pagination.HasNext}}
+    <a href="?page={{.Pagination.NextPage}}">Next &raquo;</a>
+  {{else}}
+    <span class="disabled">Next &raquo;</span>
+  {{end}}
+</div>
+{{end}}
 {{end}}
 
 {{template "_footer"}}

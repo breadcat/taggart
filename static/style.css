@@ -57,3 +57,11 @@ pre#text-viewer{font-family:serif;font-size:25px;line-height:1.8}
 #text-viewer-container:fullscreen{margin:0;max-width:75%;margin:auto;height:100vh;padding:1em;background:#000;display:flex;flex-direction:column}
 #text-viewer-container:fullscreen #text-viewer{flex:1;max-height:none!important;margin:0;height:100%}
 #text-viewer-container:fullscreen>div{flex-shrink:0}
+
+/* pagination */
+.pagination .disabled,.pagination a{border-radius:4px;padding:.5rem 1rem}
+.pagination{display:flex;justify-content:center;align-items:center;gap:1rem;margin:2rem 0;padding:1rem}
+.pagination a{background:#007bff;color:#fff;text-decoration:none;transition:background .2s}
+.pagination a:hover{background:#0056b3}
+.pagination .disabled{background:#ccc;color:#666;cursor:not-allowed}
+.pagination .page-info{font-weight:700;padding:.5rem 1rem}

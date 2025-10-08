@@ -24,8 +24,8 @@ nav ul.sub-menu li a:hover{background:#2a2a2a}
 
 /* search bar */
 div#search-container form {border-left:1px solid gray}
-div#search-container form input{border:1px solid gray;margin: 8px;padding:8px}
-div#search-container form input:focus{border:none;background-color:#3a3a3a}
+div#search-container form input{border:1px solid gray;margin: 8px;padding:8px;outline: none; box-sizing: border-box}
+div#search-container form input:focus{border:1px solid white;background-color:#3a3a3a}
 
 /* gallery styling */
 div.gallery-item a{overflow:hidden;text-overflow:ellipsis}

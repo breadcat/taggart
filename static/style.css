@@ -39,11 +39,10 @@ div.gallery-video {position: relative; display: inline-block; width: 150px; max-
 div.description-section {margin: 20px 0; padding: 15px;}
 div#current-description {background: #2a2a2a; padding: 10px; border-radius: 3px; margin-bottom: 10px; white-space: pre-wrap; min-height: 20px;}
 div#no-description {color: #666; font-style: italic; margin-bottom: 10px; padding: 10px;}
-button#edit-description-btn {background: #007cba; color: white; padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 14px;}
 textarea#description-textarea {width: 100%; max-width: 600px; padding: 8px; border: 1px solid #ccc; border-radius: 3px; font-family: inherit; resize: vertical;}
-input.description-save {background: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;}
-button.description-cancel {background: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;}
-button.text-button {border:none; background:none; color:#add8e6; cursor:pointer; padding:0; margin-left:2px;}
+button.text-button {border:none; background:none; color:#add8e6; cursor:pointer; padding:0; margin-left:2px;cursor: pointer;}
+button.text-button::before{content:"[ "}
+button.text-button::after{content:" ]"}
 div.file-container {display: flex}
 div.file-sidebar {flex: 0 0 auto; min-width: 15em}
 span.file-tag-category,div.file-sidebar details ul li a {text-transform:capitalize}
@@ -61,7 +60,5 @@ pre#text-viewer{font-family:serif;font-size:25px;line-height:1.8}
 /* pagination */
 .pagination .disabled,.pagination a{border-radius:4px;padding:.5rem 1rem}
 .pagination{display:flex;justify-content:center;align-items:center;gap:1rem;margin:2rem 0;padding:1rem}
-.pagination a{background:#007bff;color:#fff;text-decoration:none;transition:background .2s}
-.pagination a:hover{background:#0056b3}
-.pagination .disabled{background:#ccc;color:#666;cursor:not-allowed}
+.pagination .disabled{color:#666;cursor:not-allowed}
 .pagination .page-info{font-weight:700;padding:.5rem 1rem}

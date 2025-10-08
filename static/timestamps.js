@@ -1,5 +1,4 @@
 function parseTimestamp(ts) {
-  // Split by ":" and reverse to handle h:m:s flexibly
   const parts = ts.split(":").map(Number).reverse();
   let seconds = 0;
   if (parts[0]) seconds += parts[0];          // seconds
@@ -12,20 +11,34 @@ function makeTimestampsClickable(containerId, videoId) {
   const container = document.getElementById(containerId);
   const video = document.getElementById(videoId);
 
-  // Regex: [h:mm:ss] or [mm:ss] or [ss]
-  const regex = /\[(\d{1,2}(?::\d{2}){0,2})\]/g;
+  // Regex for timestamps: [h:mm:ss] or [mm:ss] or [ss]
+  const timestampRegex = /\[(\d{1,2}(?::\d{2}){0,2})\]/g;
+  // Regex for rotations: [rotate90], [rotate180], [rotate270], [rotate0]
+  const rotateRegex = /\[rotate(0|90|180|270)\]/g;
 
-  container.innerHTML = container.innerHTML.replace(regex, (match, ts) => {
+  // Replace timestamps
+  container.innerHTML = container.innerHTML.replace(timestampRegex, (match, ts) => {
     const seconds = parseTimestamp(ts);
     return `<a href="#" class="timestamp" data-time="${seconds}">${match}</a>`;
   });
 
+  // Replace rotations
+  container.innerHTML = container.innerHTML.replace(rotateRegex, (match, angle) => {
+    return `<a href="#" class="rotate" data-angle="${angle}">${match}</a>`;
+  });
+
+  // Handle clicks
   container.addEventListener("click", e => {
     if (e.target.classList.contains("timestamp")) {
       e.preventDefault();
       const time = Number(e.target.dataset.time);
       video.currentTime = time;
       video.play();
+    } else if (e.target.classList.contains("rotate")) {
+      e.preventDefault();
+      const angle = Number(e.target.dataset.angle);
+      video.style.transform = `rotate(${angle}deg)`;
+      video.style.transformOrigin = "center center";
     }
   });
 }

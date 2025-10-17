@@ -824,7 +824,13 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	catRows, _ := db.Query("SELECT name FROM categories ORDER BY name")
+	catRows, _ := db.Query(`
+		SELECT DISTINCT c.name
+		FROM categories c
+		JOIN tags t ON t.category_id = c.id
+		JOIN file_tags ft ON ft.tag_id = t.id
+		ORDER BY c.name
+	`)
 	var cats []string
 	for catRows.Next() {
 		var c string

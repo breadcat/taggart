@@ -26,6 +26,9 @@ function cancelDescriptionEdit() {
 
     displayDiv.style.display = 'block';
     editDiv.style.display = 'none';
+
+    // Re-run conversion so any [file/123] becomes clickable again
+    convertFileRefs();
 }
 
 // Auto-resize textarea as content changes
@@ -41,3 +44,21 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// Allow [file/123] and [/file/123] links to become clickable
+function convertFileRefs() {
+  const el = document.getElementById("current-description");
+  if (!el) return;
+  const text = el.textContent || "";
+  const pattern = /\[\/?file\/(\d+)\]/g;
+  const converted = text.replace(pattern, (_, id) => {
+    return `<a href="/file/${id}" class="file-link">file/${id}</a>`;
+  });
+
+  el.innerHTML = converted;
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  convertFileRefs();
+});
+

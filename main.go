@@ -71,6 +71,8 @@ type Pagination struct {
 }
 
 func getOrCreateCategoryAndTag(category, value string) (int, int, error) {
+	category = strings.TrimSpace(category)
+	value = strings.TrimSpace(value)
 	var catID int
 	err := db.QueryRow("SELECT id FROM categories WHERE name=?", category).Scan(&catID)
 	if err == sql.ErrNoRows {
@@ -813,9 +815,8 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/file/"+idStr, http.StatusSeeOther)
 			return
 		}
-
-		cat := r.FormValue("category")
-		val := r.FormValue("value")
+		cat := strings.TrimSpace(r.FormValue("category"))
+		val := strings.TrimSpace(r.FormValue("value"))
 		if cat != "" && val != "" {
 			_, tagID, _ := getOrCreateCategoryAndTag(cat, val)
 			db.Exec("INSERT OR IGNORE INTO file_tags(file_id, tag_id) VALUES (?, ?)", f.ID, tagID)
@@ -1271,6 +1272,8 @@ func validateFileIDs(fileIDs []int) ([]File, error) {
 }
 
 func applyBulkTagOperations(fileIDs []int, category, value, operation string) error {
+	category = strings.TrimSpace(category)
+	value = strings.TrimSpace(value)
 	if category == "" {
 		return fmt.Errorf("category cannot be empty")
 	}

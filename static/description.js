@@ -49,16 +49,42 @@ document.addEventListener('DOMContentLoaded', function() {
 function convertFileRefs() {
   const el = document.getElementById("current-description");
   if (!el) return;
-  const text = el.textContent || "";
-  const pattern = /\[\/?file\/(\d+)\]/g;
-  const converted = text.replace(pattern, (_, id) => {
-    return `<a href="/file/${id}" class="file-link">file/${id}</a>`;
-  });
 
-  el.innerHTML = converted;
+  const pattern = /\[\/?file\/(\d+)\]/g;
+
+  // Walk through text nodes only, preserving existing HTML elements
+  function processTextNodes(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      let text = node.textContent;
+
+      // Check if this text node contains file references
+      if (pattern.test(text)) {
+        // Reset regex lastIndex
+        pattern.lastIndex = 0;
+
+        // Replace file references
+        text = text.replace(pattern, (_, id) => {
+          return `<a href="/file/${id}" class="file-link">file/${id}</a>`;
+        });
+
+        // Create a temporary container and replace the text node
+        const temp = document.createElement('span');
+        temp.innerHTML = text;
+        const parent = node.parentNode;
+        while (temp.firstChild) {
+          parent.insertBefore(temp.firstChild, node);
+        }
+        parent.removeChild(node);
+      }
+    } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'A') {
+      // Don't process inside existing anchor tags
+      Array.from(node.childNodes).forEach(processTextNodes);
+    }
+  }
+
+  processTextNodes(el);
 }
 
 document.addEventListener("DOMContentLoaded", function() {
   convertFileRefs();
 });
-

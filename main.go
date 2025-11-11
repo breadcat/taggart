@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -1047,60 +1048,155 @@ func validateConfig(newConfig Config) error {
 }
 
 func settingsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		newConfig := Config{
-			DatabasePath: strings.TrimSpace(r.FormValue("database_path")),
-			UploadDir:    strings.TrimSpace(r.FormValue("upload_dir")),
-			ServerPort:   strings.TrimSpace(r.FormValue("server_port")),
-			InstanceName: strings.TrimSpace(r.FormValue("instance_name")),
-			GallerySize:  strings.TrimSpace(r.FormValue("gallery_size")),
-			ItemsPerPage: strings.TrimSpace(r.FormValue("items_per_page")),
-		}
+	switch r.Method {
+	case http.MethodPost:
+		action := r.FormValue("action")
 
-		if err := validateConfig(newConfig); err != nil {
+		switch action {
+		case "save", "": // support both explicit and legacy save form
+			handleSaveSettings(w, r)
+			return
+
+		case "backup":
+			err := backupDatabase(config.DatabasePath)
 			pageData := buildPageData("Settings", struct {
-				Config Config
-				Error  string
-			}{config, err.Error()})
+				Config  Config
+				Error   string
+				Success string
+			}{
+				Config:  config,
+				Error:   errorString(err),
+				Success: successString(err, "Database backup created successfully!"),
+			})
+			renderTemplate(w, "settings.html", pageData)
+			return
+
+		case "vacuum":
+			err := vacuumDatabase(config.DatabasePath)
+			pageData := buildPageData("Settings", struct {
+				Config  Config
+				Error   string
+				Success string
+			}{
+				Config:  config,
+				Error:   errorString(err),
+				Success: successString(err, "Database vacuum completed successfully!"),
+			})
 			renderTemplate(w, "settings.html", pageData)
 			return
 		}
 
-		needsRestart := (newConfig.DatabasePath != config.DatabasePath ||
-			newConfig.ServerPort != config.ServerPort)
-
-		config = newConfig
-		if err := saveConfig(); err != nil {
-			pageData := buildPageData("Settings", struct {
-				Config Config
-				Error  string
-			}{config, "Failed to save configuration: " + err.Error()})
-			renderTemplate(w, "settings.html", pageData)
-			return
-		}
-
-		var message string
-		if needsRestart {
-			message = "Settings saved successfully! Please restart the server for database/port changes to take effect."
-		} else {
-			message = "Settings saved successfully!"
-		}
-
+	default:
 		pageData := buildPageData("Settings", struct {
 			Config  Config
 			Error   string
 			Success string
-		}{config, "", message})
+		}{config, "", ""})
+		renderTemplate(w, "settings.html", pageData)
+	}
+}
+
+func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+	newConfig := Config{
+		DatabasePath: strings.TrimSpace(r.FormValue("database_path")),
+		UploadDir:    strings.TrimSpace(r.FormValue("upload_dir")),
+		ServerPort:   strings.TrimSpace(r.FormValue("server_port")),
+		InstanceName: strings.TrimSpace(r.FormValue("instance_name")),
+		GallerySize:  strings.TrimSpace(r.FormValue("gallery_size")),
+		ItemsPerPage: strings.TrimSpace(r.FormValue("items_per_page")),
+	}
+
+	if err := validateConfig(newConfig); err != nil {
+		pageData := buildPageData("Settings", struct {
+			Config Config
+			Error  string
+		}{config, err.Error()})
 		renderTemplate(w, "settings.html", pageData)
 		return
+	}
+
+	needsRestart := (newConfig.DatabasePath != config.DatabasePath ||
+		newConfig.ServerPort != config.ServerPort)
+
+	config = newConfig
+	if err := saveConfig(); err != nil {
+		pageData := buildPageData("Settings", struct {
+			Config Config
+			Error  string
+		}{config, "Failed to save configuration: " + err.Error()})
+		renderTemplate(w, "settings.html", pageData)
+		return
+	}
+
+	var message string
+	if needsRestart {
+		message = "Settings saved successfully! Please restart the server for database/port changes to take effect."
+	} else {
+		message = "Settings saved successfully!"
 	}
 
 	pageData := buildPageData("Settings", struct {
 		Config  Config
 		Error   string
 		Success string
-	}{config, "", ""})
+	}{config, "", message})
 	renderTemplate(w, "settings.html", pageData)
+}
+
+func errorString(err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func successString(err error, msg string) string {
+	if err == nil {
+		return msg
+	}
+	return ""
+}
+
+func backupDatabase(dbPath string) error {
+	if dbPath == "" {
+		return fmt.Errorf("database path not configured")
+	}
+
+	timestamp := time.Now().Format("20060102_150405")
+	backupPath := fmt.Sprintf("%s_backup_%s.db", strings.TrimSuffix(dbPath, filepath.Ext(dbPath)), timestamp)
+
+	input, err := os.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer input.Close()
+
+	output, err := os.Create(backupPath)
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %w", err)
+	}
+	defer output.Close()
+
+	if _, err := io.Copy(output, input); err != nil {
+		return fmt.Errorf("failed to copy database: %w", err)
+	}
+
+	return nil
+}
+
+func vacuumDatabase(dbPath string) error {
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("VACUUM;")
+	if err != nil {
+		return fmt.Errorf("VACUUM failed: %w", err)
+	}
+
+	return nil
 }
 
 func ytdlpHandler(w http.ResponseWriter, r *http.Request) {

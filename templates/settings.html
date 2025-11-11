@@ -82,4 +82,24 @@
     <p>Settings are stored in <code>config.json</code> in the application directory.</p>
 </div>
 
+<hr style="margin: 40px 0;">
+
+<h2>Database Maintenance</h2>
+
+<form method="post" style="margin-bottom: 20px;">
+    <input type="hidden" name="action" value="backup">
+    <button type="submit" style="background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 16px;">
+        Backup Database
+    </button>
+    <small style="color: #666; margin-left: 10px;">Creates a timestamped backup of the database file</small>
+</form>
+
+<form method="post">
+    <input type="hidden" name="action" value="vacuum">
+    <button type="submit" style="background-color: #6f42c1; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 16px;">
+        Vacuum Database
+    </button>
+    <small style="color: #666; margin-left: 10px;">Reclaims unused space and optimizes database performance</small>
+</form>
+
 {{template "_footer"}}

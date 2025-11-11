@@ -43,6 +43,12 @@ type Config struct {
 	InstanceName string `json:"instance_name"`
 	GallerySize  string `json:"gallery_size"`
 	ItemsPerPage string `json:"items_per_page"`
+	TagAliases   []TagAliasGroup `json:"tag_aliases"`
+}
+
+type TagAliasGroup struct {
+	Category string   `json:"category"`
+	Aliases  []string `json:"aliases"`
 }
 
 type TagDisplay struct {
@@ -69,6 +75,37 @@ type Pagination struct {
 	PrevPage    int
 	NextPage    int
 	PerPage     int
+}
+
+func expandTagWithAliases(category, value string) []string {
+	values := []string{value}
+
+	for _, group := range config.TagAliases {
+		if group.Category != category {
+			continue
+		}
+
+		// Check if the value is in this alias group
+		found := false
+		for _, alias := range group.Aliases {
+			if strings.EqualFold(alias, value) {
+				found = true
+				break
+			}
+		}
+
+		if found {
+			// Add all aliases from this group
+			for _, alias := range group.Aliases {
+				if !strings.EqualFold(alias, value) {
+					values = append(values, alias)
+				}
+			}
+			break
+		}
+	}
+
+	return values
 }
 
 func getOrCreateCategoryAndTag(category, value string) (int, int, error) {
@@ -877,7 +914,6 @@ func tagsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
-	// Get page number from query params
 	pageStr := r.URL.Query().Get("page")
 	page := 1
 	if pageStr != "" {
@@ -886,7 +922,6 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get per page from config
 	perPage := 50
 	if config.ItemsPerPage != "" {
 		if pp, err := strconv.Atoi(config.ItemsPerPage); err == nil && pp > 0 {
@@ -894,13 +929,13 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Split by /and/tag/ to get individual tag pairs
 	fullPath := strings.TrimPrefix(r.URL.Path, "/tag/")
 	tagPairs := strings.Split(fullPath, "/and/tag/")
 
 	type filter struct {
 		Category string
 		Value    string
+		Values   []string // Expanded values including aliases
 	}
 
 	var filters []filter
@@ -910,12 +945,24 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 			renderError(w, "Invalid tag filter path", http.StatusBadRequest)
 			return
 		}
-		filters = append(filters, filter{parts[0], parts[1]})
+
+		f := filter{
+			Category: parts[0],
+			Value:    parts[1],
+		}
+
+		// Expand with aliases
+		if parts[1] != "unassigned" {
+			f.Values = expandTagWithAliases(parts[0], parts[1])
+		}
+
+		filters = append(filters, f)
 	}
 
-	// Build count query first
+	// Build count query
 	countQuery := `SELECT COUNT(DISTINCT f.id) FROM files f WHERE 1=1`
 	countArgs := []interface{}{}
+
 	for _, f := range filters {
 		if f.Value == "unassigned" {
 			countQuery += `
@@ -928,19 +975,28 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 				)`
 			countArgs = append(countArgs, f.Category)
 		} else {
-			countQuery += `
+			// Build OR clause for aliases
+			placeholders := make([]string, len(f.Values))
+			for i := range f.Values {
+				placeholders[i] = "?"
+			}
+
+			countQuery += fmt.Sprintf(`
 				AND EXISTS (
 					SELECT 1
 					FROM file_tags ft
 					JOIN tags t ON ft.tag_id = t.id
 					JOIN categories c ON c.id = t.category_id
-					WHERE ft.file_id = f.id AND c.name = ? AND t.value = ?
-				)`
-			countArgs = append(countArgs, f.Category, f.Value)
+					WHERE ft.file_id = f.id AND c.name = ? AND t.value IN (%s)
+				)`, strings.Join(placeholders, ","))
+
+			countArgs = append(countArgs, f.Category)
+			for _, v := range f.Values {
+				countArgs = append(countArgs, v)
+			}
 		}
 	}
 
-	// Get total count
 	var total int
 	err := db.QueryRow(countQuery, countArgs...).Scan(&total)
 	if err != nil {
@@ -951,6 +1007,7 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	// Build main query with pagination
 	query := `SELECT f.id, f.filename, f.path, COALESCE(f.description, '') as description FROM files f WHERE 1=1`
 	args := []interface{}{}
+
 	for _, f := range filters {
 		if f.Value == "unassigned" {
 			query += `
@@ -963,19 +1020,28 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 				)`
 			args = append(args, f.Category)
 		} else {
-			query += `
+			// Build OR clause for aliases
+			placeholders := make([]string, len(f.Values))
+			for i := range f.Values {
+				placeholders[i] = "?"
+			}
+
+			query += fmt.Sprintf(`
 				AND EXISTS (
 					SELECT 1
 					FROM file_tags ft
 					JOIN tags t ON ft.tag_id = t.id
 					JOIN categories c ON c.id = t.category_id
-					WHERE ft.file_id = f.id AND c.name = ? AND t.value = ?
-				)`
-			args = append(args, f.Category, f.Value)
+					WHERE ft.file_id = f.id AND c.name = ? AND t.value IN (%s)
+				)`, strings.Join(placeholders, ","))
+
+			args = append(args, f.Category)
+			for _, v := range f.Values {
+				args = append(args, v)
+			}
 		}
 	}
 
-	// Add pagination
 	offset := (page - 1) * perPage
 	query += ` ORDER BY f.id DESC LIMIT ? OFFSET ?`
 	args = append(args, perPage, offset)
@@ -1008,6 +1074,7 @@ func loadConfig() error {
 		InstanceName: "Taggart",
 		GallerySize:  "400px",
 		ItemsPerPage: "100",
+		TagAliases:   []TagAliasGroup{},
 	}
 
 	if data, err := ioutil.ReadFile("config.json"); err == nil {
@@ -1053,7 +1120,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		action := r.FormValue("action")
 
 		switch action {
-		case "save", "": // support both explicit and legacy save form
+		case "save", "":
 			handleSaveSettings(w, r)
 			return
 
@@ -1084,6 +1151,10 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			})
 			renderTemplate(w, "settings.html", pageData)
 			return
+
+		case "save_aliases":
+			handleSaveAliases(w, r)
+			return
 		}
 
 	default:
@@ -1096,6 +1167,42 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleSaveAliases(w http.ResponseWriter, r *http.Request) {
+	aliasesJSON := r.FormValue("aliases_json")
+
+	var aliases []TagAliasGroup
+	if aliasesJSON != "" {
+		if err := json.Unmarshal([]byte(aliasesJSON), &aliases); err != nil {
+			pageData := buildPageData("Settings", struct {
+				Config  Config
+				Error   string
+				Success string
+			}{config, "Invalid aliases JSON: " + err.Error(), ""})
+			renderTemplate(w, "settings.html", pageData)
+			return
+		}
+	}
+
+	config.TagAliases = aliases
+
+	if err := saveConfig(); err != nil {
+		pageData := buildPageData("Settings", struct {
+			Config  Config
+			Error   string
+			Success string
+		}{config, "Failed to save configuration: " + err.Error(), ""})
+		renderTemplate(w, "settings.html", pageData)
+		return
+	}
+
+	pageData := buildPageData("Settings", struct {
+		Config  Config
+		Error   string
+		Success string
+	}{config, "", "Tag aliases saved successfully!"})
+	renderTemplate(w, "settings.html", pageData)
+}
+
 func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	newConfig := Config{
 		DatabasePath: strings.TrimSpace(r.FormValue("database_path")),
@@ -1104,6 +1211,7 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		InstanceName: strings.TrimSpace(r.FormValue("instance_name")),
 		GallerySize:  strings.TrimSpace(r.FormValue("gallery_size")),
 		ItemsPerPage: strings.TrimSpace(r.FormValue("items_per_page")),
+		TagAliases:   config.TagAliases, // Preserve existing aliases
 	}
 
 	if err := validateConfig(newConfig); err != nil {

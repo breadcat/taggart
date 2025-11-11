@@ -30,6 +30,14 @@ div#search-container form {border-left:1px solid gray}
 div#search-container form input{border:1px solid gray;margin: 8px;padding:8px;outline: none; box-sizing: border-box}
 div#search-container form input:focus{border:1px solid white;background-color:#3a3a3a}
 
+/* responsive nav bar */
+@media (max-width: 600px) {
+  nav ul li a span, nav ul li strong {display: none;}
+  nav ul li a svg {display: inline-block; margin: 0 auto; width: 1.8rem; }
+  nav ul li a {padding: 0.8rem; text-align: center;}
+  div#search-container form input {width: 80px; padding: 6px; margin: 6px; }
+  }
+
 /* fix whitespace in nav */
 nav ul {  font-size: 0; }
 nav ul li {  font-size: 1rem; }

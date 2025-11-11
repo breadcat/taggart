@@ -812,6 +812,29 @@ func fileRenameHandler(w http.ResponseWriter, r *http.Request, parts []string) {
 	http.Redirect(w, r, "/file/"+fileID, http.StatusSeeOther)
 }
 
+func getPreviousTagValue(category string, excludeFileID int) (string, error) {
+	var value string
+	err := db.QueryRow(`
+		SELECT t.value
+		FROM tags t
+		JOIN categories c ON c.id = t.category_id
+		JOIN file_tags ft ON ft.tag_id = t.id
+		JOIN files f ON f.id = ft.file_id
+		WHERE c.name = ? AND ft.file_id != ?
+		ORDER BY ft.rowid DESC
+		LIMIT 1
+	`, category, excludeFileID).Scan(&value)
+
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("no previous tag found for category: %s", category)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	return value, nil
+}
+
 func fileHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/file/")
 	if strings.Contains(idStr, "/") {
@@ -856,8 +879,29 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 		cat := strings.TrimSpace(r.FormValue("category"))
 		val := strings.TrimSpace(r.FormValue("value"))
 		if cat != "" && val != "" {
-			_, tagID, _ := getOrCreateCategoryAndTag(cat, val)
-			db.Exec("INSERT OR IGNORE INTO file_tags(file_id, tag_id) VALUES (?, ?)", f.ID, tagID)
+			originalVal := val
+			if val == "!" {
+				previousVal, err := getPreviousTagValue(cat, f.ID)
+				if err != nil {
+					http.Redirect(w, r, "/file/"+idStr+"?error="+url.QueryEscape("No previous tag found for category: "+cat), http.StatusSeeOther)
+					return
+				}
+				val = previousVal
+			}
+			_, tagID, err := getOrCreateCategoryAndTag(cat, val)
+			if err != nil {
+				http.Redirect(w, r, "/file/"+idStr+"?error="+url.QueryEscape("Failed to create tag: "+err.Error()), http.StatusSeeOther)
+				return
+			}
+			_, err = db.Exec("INSERT OR IGNORE INTO file_tags(file_id, tag_id) VALUES (?, ?)", f.ID, tagID)
+			if err != nil {
+				http.Redirect(w, r, "/file/"+idStr+"?error="+url.QueryEscape("Failed to add tag: "+err.Error()), http.StatusSeeOther)
+				return
+			}
+			if originalVal == "!" {
+				http.Redirect(w, r, "/file/"+idStr+"?success="+url.QueryEscape("Tag '"+cat+": "+val+"' copied from previous file"), http.StatusSeeOther)
+				return
+			}
 		}
 		http.Redirect(w, r, "/file/"+idStr, http.StatusSeeOther)
 		return

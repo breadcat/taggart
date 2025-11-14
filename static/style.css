@@ -34,7 +34,7 @@ div#search-container form input:focus{border:1px solid white;background-color:#3
 @media (max-width: 600px) {
   nav ul li a span, nav ul li strong {display: none;}
   nav ul li a svg {display: inline-block; margin: 0 auto; width: 1.8rem; }
-  nav ul li a {padding: 0.8rem; text-align: center;}
+  nav ul li a {padding: 0.8rem}
   div#search-container form input {width: 80px; padding: 6px; margin: 6px; }
   }
 

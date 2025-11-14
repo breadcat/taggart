@@ -369,7 +369,7 @@ func main() {
 	http.HandleFunc("/untagged", untaggedFilesHandler)
 	http.HandleFunc("/search", searchHandler)
 	http.HandleFunc("/bulk-tag", bulkTagHandler)
-	http.HandleFunc("/settings", settingsHandler)
+	http.HandleFunc("/admin", adminHandler)
 	http.HandleFunc("/orphans", orphansHandler)
 
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(config.UploadDir))))
@@ -1173,7 +1173,7 @@ func validateConfig(newConfig Config) error {
 	return nil
 }
 
-func settingsHandler(w http.ResponseWriter, r *http.Request) {
+func adminHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		action := r.FormValue("action")
@@ -1185,7 +1185,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "backup":
 			err := backupDatabase(config.DatabasePath)
-			pageData := buildPageData("Settings", struct {
+			pageData := buildPageData("Admin", struct {
 				Config  Config
 				Error   string
 				Success string
@@ -1194,12 +1194,12 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				Error:   errorString(err),
 				Success: successString(err, "Database backup created successfully!"),
 			})
-			renderTemplate(w, "settings.html", pageData)
+			renderTemplate(w, "admin.html", pageData)
 			return
 
 		case "vacuum":
 			err := vacuumDatabase(config.DatabasePath)
-			pageData := buildPageData("Settings", struct {
+			pageData := buildPageData("Admin", struct {
 				Config  Config
 				Error   string
 				Success string
@@ -1208,7 +1208,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				Error:   errorString(err),
 				Success: successString(err, "Database vacuum completed successfully!"),
 			})
-			renderTemplate(w, "settings.html", pageData)
+			renderTemplate(w, "admin.html", pageData)
 			return
 
 		case "save_aliases":
@@ -1217,12 +1217,12 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 	default:
-		pageData := buildPageData("Settings", struct {
+		pageData := buildPageData("Admin", struct {
 			Config  Config
 			Error   string
 			Success string
 		}{config, "", ""})
-		renderTemplate(w, "settings.html", pageData)
+		renderTemplate(w, "admin.html", pageData)
 	}
 }
 
@@ -1232,12 +1232,12 @@ func handleSaveAliases(w http.ResponseWriter, r *http.Request) {
 	var aliases []TagAliasGroup
 	if aliasesJSON != "" {
 		if err := json.Unmarshal([]byte(aliasesJSON), &aliases); err != nil {
-			pageData := buildPageData("Settings", struct {
+			pageData := buildPageData("Admin", struct {
 				Config  Config
 				Error   string
 				Success string
 			}{config, "Invalid aliases JSON: " + err.Error(), ""})
-			renderTemplate(w, "settings.html", pageData)
+			renderTemplate(w, "admin.html", pageData)
 			return
 		}
 	}
@@ -1245,21 +1245,21 @@ func handleSaveAliases(w http.ResponseWriter, r *http.Request) {
 	config.TagAliases = aliases
 
 	if err := saveConfig(); err != nil {
-		pageData := buildPageData("Settings", struct {
+		pageData := buildPageData("Admin", struct {
 			Config  Config
 			Error   string
 			Success string
 		}{config, "Failed to save configuration: " + err.Error(), ""})
-		renderTemplate(w, "settings.html", pageData)
+		renderTemplate(w, "admin.html", pageData)
 		return
 	}
 
-	pageData := buildPageData("Settings", struct {
+	pageData := buildPageData("Admin", struct {
 		Config  Config
 		Error   string
 		Success string
 	}{config, "", "Tag aliases saved successfully!"})
-	renderTemplate(w, "settings.html", pageData)
+	renderTemplate(w, "admin.html", pageData)
 }
 
 func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
@@ -1274,11 +1274,11 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := validateConfig(newConfig); err != nil {
-		pageData := buildPageData("Settings", struct {
+		pageData := buildPageData("Admin", struct {
 			Config Config
 			Error  string
 		}{config, err.Error()})
-		renderTemplate(w, "settings.html", pageData)
+		renderTemplate(w, "admin.html", pageData)
 		return
 	}
 
@@ -1287,11 +1287,11 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 
 	config = newConfig
 	if err := saveConfig(); err != nil {
-		pageData := buildPageData("Settings", struct {
+		pageData := buildPageData("Admin", struct {
 			Config Config
 			Error  string
 		}{config, "Failed to save configuration: " + err.Error()})
-		renderTemplate(w, "settings.html", pageData)
+		renderTemplate(w, "admin.html", pageData)
 		return
 	}
 
@@ -1302,12 +1302,12 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		message = "Settings saved successfully!"
 	}
 
-	pageData := buildPageData("Settings", struct {
+	pageData := buildPageData("Admin", struct {
 		Config  Config
 		Error   string
 		Success string
 	}{config, "", message})
-	renderTemplate(w, "settings.html", pageData)
+	renderTemplate(w, "admin.html", pageData)
 }
 
 func errorString(err error) string {

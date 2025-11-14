@@ -3,7 +3,7 @@
 
 <div class="gallery">
 {{range .Data}}
-{{template "_gallery" .}}
+{{template "_gallery" dict "File" . "Page" $}}
 {{else}}
   <p>No untagged files.</p>
 {{end}}

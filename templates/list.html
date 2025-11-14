@@ -5,7 +5,7 @@
 <h2>Tagged Files</h2>
 <div class="gallery">
 {{range .Data.Tagged}}
-{{template "_gallery" .}}
+{{template "_gallery" dict "File" . "Page" $}}
 {{else}}
   <p>No tagged files yet.</p>
 {{end}}
@@ -16,7 +16,7 @@
 <h2>Untagged Files</h2>
 <div class="gallery">
 {{range .Data.Untagged}}
-{{template "_gallery" .}}
+{{template "_gallery" dict "File" . "Page" $}}
 {{else}}
   <li>No untagged files.</li>
 {{end}}

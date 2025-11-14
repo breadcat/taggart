@@ -1,10 +1,21 @@
 {{define "_gallery"}}
-	<div class="gallery-item">
-	<a href="/file/{{.ID}}" title="{{.Filename}}">
-    {{if hasAnySuffix .Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}<img src="/uploads/{{.EscapedFilename}}" style="max-width:150px">
-    {{else if hasAnySuffix .Filename ".mp4" ".webm" ".mov" ".m4v"}}<div class="gallery-video"><img src="/uploads/thumbnails/{{.EscapedFilename}}.jpg" style="width: 100%; display: block;" /><div class="play-button"></div></div>
-    {{else if hasAnySuffix .Filename ".txt" ".md"}}<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" fill="#f5f5f5" rx="8"/><rect x="4" y="4" width="56" height="56" fill="none" stroke="#666" stroke-width="2" rx="6"/><text x="32" y="42" font-family="sans-serif" font-size="26" font-weight="600" fill="#333" text-anchor="middle">Aa</text></svg>
-    {{end}}
-    <br>{{.Filename}}</a>
-    </div>
+<div class="gallery-item">
+    <a href="/file/{{.File.ID}}" title="{{.File.Filename}}">
+        {{if hasAnySuffix .File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
+            <img src="/uploads/{{.File.EscapedFilename}}">
+        {{else if hasAnySuffix .File.Filename ".mp4" ".webm" ".mov" ".m4v"}}
+            <div class="gallery-video">
+                <img src="/uploads/thumbnails/{{.File.EscapedFilename}}.jpg">
+                <div class="play-button"></div>
+            </div>
+        {{else if hasAnySuffix .File.Filename ".txt" ".md"}}
+            <svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                <rect width="64" height="64" fill="#f5f5f5" rx="8"/>
+                <rect x="4" y="4" width="56" height="56" fill="none" stroke="#666" stroke-width="2" rx="6"/>
+                <text x="32" y="42" font-family="sans-serif" font-size="26"
+                      font-weight="600" fill="#333" text-anchor="middle">Aa</text>
+            </svg>
+        {{end}}
+    </a>
+</div>
 {{end}}

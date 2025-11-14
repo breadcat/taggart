@@ -6,7 +6,7 @@
 <h2>Found {{len .Files}} file{{if ne (len .Files) 1}}s{{end}}</h2>
 <div class="gallery">
     {{range .Files}}
-    {{template "_gallery" .}}
+    {{template "_gallery" dict "File" . "Page" $}}
     {{end}}
 </div>
 

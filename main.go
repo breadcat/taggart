@@ -65,6 +65,7 @@ type PageData struct {
 	Files      []File
 	Tags       map[string][]TagDisplay
 	Pagination *Pagination
+	GallerySize string
 }
 
 type Pagination struct {
@@ -223,7 +224,7 @@ func getUntaggedFilesPaginated(page, perPage int) ([]File, int, error) {
 
 func buildPageData(title string, data interface{}) PageData {
 	tagMap, _ := getTagData()
-	return PageData{Title: title, Data: data, Tags: tagMap}
+	return PageData{Title: title, Data: data, Tags: tagMap, GallerySize: config.GallerySize,}
 }
 
 func buildPageDataWithPagination(title string, data interface{}, page, total, perPage int) PageData {
@@ -342,6 +343,20 @@ func main() {
 			}
 			return false
 		},
+    "dict": func(values ...interface{}) (map[string]interface{}, error) {
+        if len(values)%2 != 0 {
+            return nil, fmt.Errorf("dict requires an even number of args")
+        }
+        dict := make(map[string]interface{}, len(values)/2)
+        for i := 0; i < len(values); i += 2 {
+            key, ok := values[i].(string)
+            if !ok {
+                return nil, fmt.Errorf("dict keys must be strings")
+            }
+            dict[key] = values[i+1]
+        }
+        return dict, nil
+    },
 	}).ParseGlob("templates/*.html"))
 
 	http.HandleFunc("/", listFilesHandler)

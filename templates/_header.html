@@ -6,6 +6,10 @@
   <title>{{if .Title}}{{.Title}} - Taggart{{else}}Taggart{{end}}</title>
   <link href="/static/style.css" rel="stylesheet">
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --gallery-size: {{ .GallerySize }}; }
+    div.gallery-item, div.gallery img, div.gallery-item a{ max-width: var(--gallery-size); max-height: var(--gallery-size); }
+  </style>
 </head>
 <body>
 <nav>

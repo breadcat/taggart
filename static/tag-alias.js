@@ -22,14 +22,10 @@ function renderAliasGroups() {
             <div style="margin-bottom: 10px;">
                 <label style="display: block; font-weight: bold; margin-bottom: 5px;">Aliased Values:</label>
                 <div id="aliases-${groupIndex}"></div>
-                <button onclick="addAlias(${groupIndex})" type="button" style="background-color: #17a2b8; color: white; padding: 4px 12px; border: none; border-radius: 3px; font-size: 13px; cursor: pointer; margin-top: 5px;">
-                    + Add Value
-                </button>
+                <button onclick="addAlias(${groupIndex})" type="button" class="text-button">+ Add Value</button>
             </div>
 
-            <button onclick="removeAliasGroup(${groupIndex})" type="button" style="background-color: #dc3545; color: white; padding: 6px 12px; border: none; border-radius: 3px; font-size: 13px; cursor: pointer;">
-                Remove Group
-            </button>
+            <button onclick="removeAliasGroup(${groupIndex})" type="button" class="text-button">Remove Group</button>
         `;
 
         container.appendChild(groupDiv);
@@ -56,9 +52,7 @@ function renderAliases(groupIndex) {
                    onchange="updateAlias(${groupIndex}, ${aliasIndex}, this.value)"
                    style="flex: 1; padding: 6px; font-size: 14px;"
                    placeholder="e.g., blue">
-            <button onclick="removeAlias(${groupIndex}, ${aliasIndex})" type="button" style="background-color: #dc3545; color: white; padding: 4px 8px; border: none; border-radius: 3px; font-size: 12px; cursor: pointer;">
-                Remove
-            </button>
+            <button onclick="removeAlias(${groupIndex}, ${aliasIndex})" type="button" class="text-button">Remove</button>
         `;
 
         container.appendChild(aliasDiv);

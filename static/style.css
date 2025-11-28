@@ -61,6 +61,7 @@ button.text-button::before{content:"[ "}
 button.text-button::after{content:" ]"}
 div.file-container {display: flex}
 div.file-sidebar {flex: 0 0 auto; min-width: 15em}
+div.file-sidebar details {padding: 0.7rem}
 span.file-tag-category,div.file-sidebar details ul li a {text-transform:capitalize}
 
 details > summary {list-style: none; cursor: pointer; }

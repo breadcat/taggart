@@ -18,7 +18,6 @@
            value="{{.Pagination.CurrentPage}}"
            min="1"
            max="{{.Pagination.TotalPages}}"
-           style="width: 60px; text-align: center;"
            onkeypress="if(event.key === 'Enter') { var page = parseInt(this.value); if(page >= 1 && page <= {{.Pagination.TotalPages}}) { window.location.href = '?page=' + page; } }">
     of {{.Pagination.TotalPages}}
   </span>

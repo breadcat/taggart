@@ -1,6 +1,10 @@
 /* main body styling */
-body,div#search-container form input{background:#1a1a1a;color:#cfcfcf;font-family:sans-serif;margin:0}
+body,button{background:#1a1a1a;color:#cfcfcf;font-family:sans-serif;margin:0}
 a{color:#add8e6;text-decoration:none}
+input[type="url"], input[type="text"] {background:#1a1a1a;color:#cfcfcf;border:1px solid gray;margin: 8px;padding:8px;outline: none; box-sizing: border-box}
+input[type="url"]:focus, input[type="text"]:focus{border:1px solid white;background-color:#3a3a3a}
+div#search-container form {border-left:1px solid gray}
+span.required {color: red}
 
 /* nav menu */
 nav ul{flex:1 1 auto;list-style:none}
@@ -25,17 +29,12 @@ nav ul.sub-menu li a{color:#add8e6;background:#1a1a1a; min-width: 110px}
 nav ul.sub-menu li ul li a{min-width: 170px}
 nav ul.sub-menu li a:hover{background:#2a2a2a}
 
-/* search bar */
-div#search-container form {border-left:1px solid gray}
-div#search-container form input{border:1px solid gray;margin: 8px;padding:8px;outline: none; box-sizing: border-box}
-div#search-container form input:focus{border:1px solid white;background-color:#3a3a3a}
-
 /* responsive nav bar */
 @media (max-width: 600px) {
   nav ul li a span, nav ul li strong {display: none;}
   nav ul li a svg {display: inline-block; margin: 0 auto; width: 1.8rem; }
   nav ul li a {padding: 0.8rem}
-  div#search-container form input {width: 80px; padding: 6px; margin: 6px; }
+  div#search-container form input {width: 80px}
   }
 
 /* fix whitespace in nav */
@@ -63,6 +62,8 @@ div.file-container {display: flex}
 div.file-sidebar {flex: 0 0 auto; min-width: 15em}
 div.file-sidebar details {padding: 0.7rem}
 span.file-tag-category,div.file-sidebar details ul li a {text-transform:capitalize}
+div.file-sidebar details ul li form {display:inline}
+button#copy-btn {margin-top: 5px}
 
 details > summary {list-style: none; cursor: pointer; }
 details > summary::before {content: "[+]"; display: inline-block; width: 2ch; margin-right: 0.5ch;}
@@ -70,9 +71,14 @@ details[open] > summary::before {content: "[-]";}
 
 /* text viewer */
 pre#text-viewer{font-family:serif;font-size:25px;line-height:1.8}
+#text-viewer-container{max-width:800px; margin:1em 0}
+#text-viewer-container div{display:flex; justify-content:space-between; margin-bottom:5px;}
 #text-viewer-container:fullscreen{margin:0;max-width:75%;margin:auto;height:100vh;padding:1em;background:#000;display:flex;flex-direction:column}
 #text-viewer-container:fullscreen #text-viewer{flex:1;max-height:none!important;margin:0;height:100%}
 #text-viewer-container:fullscreen>div{flex-shrink:0}
+pre#text-viewer {white-space:pre-wrap; overflow:auto; background:#111; color:#eee; padding:10px; border-radius:8px; max-height:500px;}
+
+img.file-content-image {max-width:400px}
 
 /* pagination */
 .pagination .disabled,.pagination a{border-radius:4px;padding:.5rem 1rem}

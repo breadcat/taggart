@@ -57,7 +57,7 @@
                         <label>
                             <input type="radio" name="operation" value="add" {{if eq .Data.FormData.Operation "add"}}checked{{end}}>
                             Add tag to selected files
-                        </label>
+                        </label><br>
                         <label>
                             <input type="radio" name="operation" value="remove" {{if eq .Data.FormData.Operation "remove"}}checked{{end}}>
                             Remove tag(s) from selected files
@@ -69,7 +69,7 @@
                 </div>
             </div>
 
-            <button type="submit" class="btn">Apply Tags</button>
+            <button type="submit" class="text-button">Apply Tags</button>
         </form>
 
 		<br>

@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (checkedOp.value === 'add') {
         valueField.required = true;
-        valueLabel.innerHTML = 'Value: <span style="color: red;">*</span>';
+        valueLabel.innerHTML = 'Value <span class="required">(required)</span>:';
     } else {
         valueField.required = false;
         valueLabel.innerHTML = 'Value:';

@@ -2,20 +2,19 @@
 <h2>Upload File(s)</h2>
 <form method="post" enctype="multipart/form-data">
   <input type="file" name="file" multiple>
-  <button type="submit">Upload</button>
+  <br><button type="submit" class="text-button">Upload</button>
 </form>
 
 <h2>Upload from URL</h2>
 <form method="post" action="/upload-url">
-  File URL: <input type="url" name="fileurl" required style="width:400px"><br>
-  Custom filename: <input type="text" name="filename" placeholder="Optional: my-image.jpg" style="width:300px"><br>
-  <button type="submit">Add File</button>
+  <input type="url" name="fileurl" required placeholder="File URL"><input type="text" name="filename" placeholder="Optional custom filename">
+  <br><button type="submit" class="text-button">Download File</button>
 </form>
 
-<h2>Upload from yt-dlp</h2>
+<h2>Upload using yt-dlp</h2>
 <form action="/add-yt" method="POST">
-    <label for="url">Video URL:</label>
-    <input type="text" name="url" id="url" required>
-    <button type="submit">Add Video</button>
+    <input type="text" name="url" id="url" required placeholder="Video URL">
+    <br><button type="submit" class="text-button">Download Video</button>
 </form>
+
 {{template "_footer"}}

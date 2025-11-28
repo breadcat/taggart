@@ -78,6 +78,15 @@ type Pagination struct {
 	PerPage     int
 }
 
+type VideoFile struct {
+	ID              int
+	Filename        string
+	Path            string
+	HasThumbnail    bool
+	ThumbnailPath   string
+	EscapedFilename string
+}
+
 func expandTagWithAliases(category, value string) []string {
 	values := []string{value}
 
@@ -371,6 +380,8 @@ func main() {
 	http.HandleFunc("/bulk-tag", bulkTagHandler)
 	http.HandleFunc("/admin", adminHandler)
 	http.HandleFunc("/orphans", orphansHandler)
+	http.HandleFunc("/thumbnails", thumbnailsHandler)
+	http.HandleFunc("/thumbnails/generate", generateThumbnailHandler)
 
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(config.UploadDir))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -1873,6 +1884,175 @@ func orphansHandler(w http.ResponseWriter, r *http.Request) {
 
 	pageData := buildPageData("Orphaned Files", orphans)
 	renderTemplate(w, "orphans.html", pageData)
+}
+
+func generateThumbnailAtTime(videoPath, uploadDir, filename, timestamp string) error {
+	thumbDir := filepath.Join(uploadDir, "thumbnails")
+	if err := os.MkdirAll(thumbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create thumbnails directory: %v", err)
+	}
+
+	thumbPath := filepath.Join(thumbDir, filename+".jpg")
+
+	cmd := exec.Command("ffmpeg", "-y", "-ss", timestamp, "-i", videoPath, "-vframes", "1", "-vf", "scale=400:-1", thumbPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to generate thumbnail at %s: %v", timestamp, err)
+	}
+
+	return nil
+}
+
+func getVideoFiles() ([]VideoFile, error) {
+	videoExts := []string{".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
+
+	rows, err := db.Query(`SELECT id, filename, path FROM files ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var videos []VideoFile
+	for rows.Next() {
+		var v VideoFile
+		if err := rows.Scan(&v.ID, &v.Filename, &v.Path); err != nil {
+			continue
+		}
+
+		// Check if it's a video file
+		isVideo := false
+		ext := strings.ToLower(filepath.Ext(v.Filename))
+		for _, vidExt := range videoExts {
+			if ext == vidExt {
+				isVideo = true
+				break
+			}
+		}
+
+		if !isVideo {
+			continue
+		}
+
+		v.EscapedFilename = url.PathEscape(v.Filename)
+		thumbPath := filepath.Join(config.UploadDir, "thumbnails", v.Filename+".jpg")
+		v.ThumbnailPath = "/uploads/thumbnails/" + v.EscapedFilename + ".jpg"
+
+		if _, err := os.Stat(thumbPath); err == nil {
+			v.HasThumbnail = true
+		}
+
+		videos = append(videos, v)
+	}
+
+	return videos, nil
+}
+
+func getMissingThumbnailVideos() ([]VideoFile, error) {
+	allVideos, err := getVideoFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	var missing []VideoFile
+	for _, v := range allVideos {
+		if !v.HasThumbnail {
+			missing = append(missing, v)
+		}
+	}
+
+	return missing, nil
+}
+
+func thumbnailsHandler(w http.ResponseWriter, r *http.Request) {
+	allVideos, err := getVideoFiles()
+	if err != nil {
+		renderError(w, "Failed to get video files: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	missing, err := getMissingThumbnailVideos()
+	if err != nil {
+		renderError(w, "Failed to get video files: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	pageData := buildPageData("Thumbnail Management", struct {
+		AllVideos         []VideoFile
+		MissingThumbnails []VideoFile
+		Error             string
+		Success           string
+	}{
+		AllVideos:         allVideos,
+		MissingThumbnails: missing,
+		Error:             r.URL.Query().Get("error"),
+		Success:           r.URL.Query().Get("success"),
+	})
+
+	renderTemplate(w, "thumbnails.html", pageData)
+}
+
+func generateThumbnailHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/thumbnails", http.StatusSeeOther)
+		return
+	}
+
+	action := r.FormValue("action")
+
+	switch action {
+	case "generate_all":
+		missing, err := getMissingThumbnailVideos()
+		if err != nil {
+			http.Redirect(w, r, "/thumbnails?error="+url.QueryEscape("Failed to get videos: "+err.Error()), http.StatusSeeOther)
+			return
+		}
+
+		successCount := 0
+		var errors []string
+
+		for _, v := range missing {
+			err := generateThumbnail(v.Path, config.UploadDir, v.Filename)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", v.Filename, err))
+			} else {
+				successCount++
+			}
+		}
+
+		if len(errors) > 0 {
+			http.Redirect(w, r, "/thumbnails?success="+url.QueryEscape(fmt.Sprintf("Generated %d thumbnails", successCount))+"&error="+url.QueryEscape(fmt.Sprintf("Failed: %s", strings.Join(errors, "; "))), http.StatusSeeOther)
+		} else {
+			http.Redirect(w, r, "/thumbnails?success="+url.QueryEscape(fmt.Sprintf("Successfully generated %d thumbnails", successCount)), http.StatusSeeOther)
+		}
+
+	case "generate_single":
+		fileID := r.FormValue("file_id")
+		timestamp := strings.TrimSpace(r.FormValue("timestamp"))
+
+		if timestamp == "" {
+			timestamp = "00:00:05"
+		}
+
+		var filename, path string
+		err := db.QueryRow("SELECT filename, path FROM files WHERE id=?", fileID).Scan(&filename, &path)
+		if err != nil {
+			http.Redirect(w, r, "/thumbnails?error="+url.QueryEscape("File not found"), http.StatusSeeOther)
+			return
+		}
+
+		err = generateThumbnailAtTime(path, config.UploadDir, filename, timestamp)
+		if err != nil {
+			http.Redirect(w, r, "/thumbnails?error="+url.QueryEscape("Failed to generate thumbnail: "+err.Error()), http.StatusSeeOther)
+			return
+		}
+
+		http.Redirect(w, r, fmt.Sprintf("/file/%s?success=%s", fileID, url.QueryEscape(fmt.Sprintf("Thumbnail generated at %s", timestamp))), http.StatusSeeOther)
+
+	default:
+		http.Redirect(w, r, "/thumbnails", http.StatusSeeOther)
+	}
 }
 
 func generateThumbnail(videoPath, uploadDir, filename string) error {

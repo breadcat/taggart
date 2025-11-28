@@ -379,9 +379,6 @@ func main() {
 	http.HandleFunc("/search", searchHandler)
 	http.HandleFunc("/bulk-tag", bulkTagHandler)
 	http.HandleFunc("/admin", adminHandler)
-	http.HandleFunc("/orphans", orphansHandler)
-	http.HandleFunc("/thumbnails", thumbnailsHandler)
-	http.HandleFunc("/thumbnails/generate", generateThumbnailHandler)
 
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(config.UploadDir))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -1185,25 +1182,35 @@ func validateConfig(newConfig Config) error {
 }
 
 func adminHandler(w http.ResponseWriter, r *http.Request) {
+	// Get orphaned files
+	orphans, _ := getOrphanedFiles(config.UploadDir)
+
+	// Get video files for thumbnails
+	missingThumbnails, _ := getMissingThumbnailVideos()
+
 	switch r.Method {
 	case http.MethodPost:
 		action := r.FormValue("action")
 
 		switch action {
 		case "save", "":
-			handleSaveSettings(w, r)
+			handleSaveSettings(w, r, orphans, missingThumbnails)
 			return
 
 		case "backup":
 			err := backupDatabase(config.DatabasePath)
 			pageData := buildPageData("Admin", struct {
-				Config  Config
-				Error   string
-				Success string
+				Config            Config
+				Error             string
+				Success           string
+				Orphans           []string
+				MissingThumbnails []VideoFile
 			}{
-				Config:  config,
-				Error:   errorString(err),
-				Success: successString(err, "Database backup created successfully!"),
+				Config:            config,
+				Error:             errorString(err),
+				Success:           successString(err, "Database backup created successfully!"),
+				Orphans:           orphans,
+				MissingThumbnails: missingThumbnails,
 			})
 			renderTemplate(w, "admin.html", pageData)
 			return
@@ -1211,43 +1218,63 @@ func adminHandler(w http.ResponseWriter, r *http.Request) {
 		case "vacuum":
 			err := vacuumDatabase(config.DatabasePath)
 			pageData := buildPageData("Admin", struct {
-				Config  Config
-				Error   string
-				Success string
+				Config            Config
+				Error             string
+				Success           string
+				Orphans           []string
+				MissingThumbnails []VideoFile
 			}{
-				Config:  config,
-				Error:   errorString(err),
-				Success: successString(err, "Database vacuum completed successfully!"),
+				Config:            config,
+				Error:             errorString(err),
+				Success:           successString(err, "Database vacuum completed successfully!"),
+				Orphans:           orphans,
+				MissingThumbnails: missingThumbnails,
 			})
 			renderTemplate(w, "admin.html", pageData)
 			return
 
 		case "save_aliases":
-			handleSaveAliases(w, r)
+			handleSaveAliases(w, r, orphans, missingThumbnails)
 			return
 		}
 
 	default:
 		pageData := buildPageData("Admin", struct {
-			Config  Config
-			Error   string
-			Success string
-		}{config, "", ""})
+			Config            Config
+			Error             string
+			Success           string
+			Orphans           []string
+			MissingThumbnails []VideoFile
+		}{
+			Config:            config,
+			Error:             "",
+			Success:           "",
+			Orphans:           orphans,
+			MissingThumbnails: missingThumbnails,
+		})
 		renderTemplate(w, "admin.html", pageData)
 	}
 }
 
-func handleSaveAliases(w http.ResponseWriter, r *http.Request) {
+func handleSaveAliases(w http.ResponseWriter, r *http.Request, orphans []string, missingThumbnails []VideoFile) {
 	aliasesJSON := r.FormValue("aliases_json")
 
 	var aliases []TagAliasGroup
 	if aliasesJSON != "" {
 		if err := json.Unmarshal([]byte(aliasesJSON), &aliases); err != nil {
 			pageData := buildPageData("Admin", struct {
-				Config  Config
-				Error   string
-				Success string
-			}{config, "Invalid aliases JSON: " + err.Error(), ""})
+				Config            Config
+				Error             string
+				Success           string
+				Orphans           []string
+				MissingThumbnails []VideoFile
+			}{
+				Config:            config,
+				Error:             "Invalid aliases JSON: " + err.Error(),
+				Success:           "",
+				Orphans:           orphans,
+				MissingThumbnails: missingThumbnails,
+			})
 			renderTemplate(w, "admin.html", pageData)
 			return
 		}
@@ -1257,23 +1284,39 @@ func handleSaveAliases(w http.ResponseWriter, r *http.Request) {
 
 	if err := saveConfig(); err != nil {
 		pageData := buildPageData("Admin", struct {
-			Config  Config
-			Error   string
-			Success string
-		}{config, "Failed to save configuration: " + err.Error(), ""})
+			Config            Config
+			Error             string
+			Success           string
+			Orphans           []string
+			MissingThumbnails []VideoFile
+		}{
+			Config:            config,
+			Error:             "Failed to save configuration: " + err.Error(),
+			Success:           "",
+			Orphans:           orphans,
+			MissingThumbnails: missingThumbnails,
+		})
 		renderTemplate(w, "admin.html", pageData)
 		return
 	}
 
 	pageData := buildPageData("Admin", struct {
-		Config  Config
-		Error   string
-		Success string
-	}{config, "", "Tag aliases saved successfully!"})
+		Config            Config
+		Error             string
+		Success           string
+		Orphans           []string
+		MissingThumbnails []VideoFile
+	}{
+		Config:            config,
+		Error:             "",
+		Success:           "Tag aliases saved successfully!",
+		Orphans:           orphans,
+		MissingThumbnails: missingThumbnails,
+	})
 	renderTemplate(w, "admin.html", pageData)
 }
 
-func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+func handleSaveSettings(w http.ResponseWriter, r *http.Request, orphans []string, missingThumbnails []VideoFile) {
 	newConfig := Config{
 		DatabasePath: strings.TrimSpace(r.FormValue("database_path")),
 		UploadDir:    strings.TrimSpace(r.FormValue("upload_dir")),
@@ -1286,9 +1329,18 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 
 	if err := validateConfig(newConfig); err != nil {
 		pageData := buildPageData("Admin", struct {
-			Config Config
-			Error  string
-		}{config, err.Error()})
+			Config            Config
+			Error             string
+			Success           string
+			Orphans           []string
+			MissingThumbnails []VideoFile
+		}{
+			Config:            config,
+			Error:             err.Error(),
+			Success:           "",
+			Orphans:           orphans,
+			MissingThumbnails: missingThumbnails,
+		})
 		renderTemplate(w, "admin.html", pageData)
 		return
 	}
@@ -1299,9 +1351,18 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	config = newConfig
 	if err := saveConfig(); err != nil {
 		pageData := buildPageData("Admin", struct {
-			Config Config
-			Error  string
-		}{config, "Failed to save configuration: " + err.Error()})
+			Config            Config
+			Error             string
+			Success           string
+			Orphans           []string
+			MissingThumbnails []VideoFile
+		}{
+			Config:            config,
+			Error:             "Failed to save configuration: " + err.Error(),
+			Success:           "",
+			Orphans:           orphans,
+			MissingThumbnails: missingThumbnails,
+		})
 		renderTemplate(w, "admin.html", pageData)
 		return
 	}
@@ -1314,12 +1375,21 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageData := buildPageData("Admin", struct {
-		Config  Config
-		Error   string
-		Success string
-	}{config, "", message})
+		Config            Config
+		Error             string
+		Success           string
+		Orphans           []string
+		MissingThumbnails []VideoFile
+	}{
+		Config:            config,
+		Error:             "",
+		Success:           message,
+		Orphans:           orphans,
+		MissingThumbnails: missingThumbnails,
+	})
 	renderTemplate(w, "admin.html", pageData)
 }
+
 
 func errorString(err error) string {
 	if err != nil {
@@ -1995,17 +2065,23 @@ func thumbnailsHandler(w http.ResponseWriter, r *http.Request) {
 
 func generateThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/thumbnails", http.StatusSeeOther)
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
 
 	action := r.FormValue("action")
+	redirectTo := r.FormValue("redirect")
+	if redirectTo == "" {
+		redirectTo = "thumbnails"
+	}
+
+	redirectBase := "/" + redirectTo
 
 	switch action {
 	case "generate_all":
 		missing, err := getMissingThumbnailVideos()
 		if err != nil {
-			http.Redirect(w, r, "/thumbnails?error="+url.QueryEscape("Failed to get videos: "+err.Error()), http.StatusSeeOther)
+			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to get videos: "+err.Error()), http.StatusSeeOther)
 			return
 		}
 
@@ -2022,9 +2098,9 @@ func generateThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(errors) > 0 {
-			http.Redirect(w, r, "/thumbnails?success="+url.QueryEscape(fmt.Sprintf("Generated %d thumbnails", successCount))+"&error="+url.QueryEscape(fmt.Sprintf("Failed: %s", strings.Join(errors, "; "))), http.StatusSeeOther)
+			http.Redirect(w, r, redirectBase+"?success="+url.QueryEscape(fmt.Sprintf("Generated %d thumbnails", successCount))+"&error="+url.QueryEscape(fmt.Sprintf("Failed: %s", strings.Join(errors, "; "))), http.StatusSeeOther)
 		} else {
-			http.Redirect(w, r, "/thumbnails?success="+url.QueryEscape(fmt.Sprintf("Successfully generated %d thumbnails", successCount)), http.StatusSeeOther)
+			http.Redirect(w, r, redirectBase+"?success="+url.QueryEscape(fmt.Sprintf("Successfully generated %d thumbnails", successCount)), http.StatusSeeOther)
 		}
 
 	case "generate_single":
@@ -2038,20 +2114,24 @@ func generateThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 		var filename, path string
 		err := db.QueryRow("SELECT filename, path FROM files WHERE id=?", fileID).Scan(&filename, &path)
 		if err != nil {
-			http.Redirect(w, r, "/thumbnails?error="+url.QueryEscape("File not found"), http.StatusSeeOther)
+			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("File not found"), http.StatusSeeOther)
 			return
 		}
 
 		err = generateThumbnailAtTime(path, config.UploadDir, filename, timestamp)
 		if err != nil {
-			http.Redirect(w, r, "/thumbnails?error="+url.QueryEscape("Failed to generate thumbnail: "+err.Error()), http.StatusSeeOther)
+			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to generate thumbnail: "+err.Error()), http.StatusSeeOther)
 			return
 		}
 
-		http.Redirect(w, r, fmt.Sprintf("/file/%s?success=%s", fileID, url.QueryEscape(fmt.Sprintf("Thumbnail generated at %s", timestamp))), http.StatusSeeOther)
+		if redirectTo == "admin" {
+			http.Redirect(w, r, "/admin?success="+url.QueryEscape(fmt.Sprintf("Thumbnail generated for file %s at %s", fileID, timestamp)), http.StatusSeeOther)
+		} else {
+			http.Redirect(w, r, fmt.Sprintf("/file/%s?success=%s", fileID, url.QueryEscape(fmt.Sprintf("Thumbnail generated at %s", timestamp))), http.StatusSeeOther)
+		}
 
 	default:
-		http.Redirect(w, r, "/thumbnails", http.StatusSeeOther)
+		http.Redirect(w, r, redirectBase, http.StatusSeeOther)
 	}
 }
 

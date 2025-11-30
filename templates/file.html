@@ -26,13 +26,9 @@
     <details>
     <summary>Add Tags</summary>
 		<form method="post">
-		  Category: <input type="text" name="category" list="categories"><br>
-		  <datalist id="categories">
-			{{range .Data.Categories}}
-			  <option value="{{.}}">
-			{{end}}
-		  </datalist>
-		  Value: <input type="text" name="value"><br>
+		  <input type="text" name="category" list="categories" placeholder="Category"><br>
+		  <datalist id="categories">{{range .Data.Categories}}<option value="{{.}}">{{end}}</datalist>
+		  <input type="text" name="value" placeholder="Value"><br>
 		  <button class="text-button" type="submit">Add Tag</button>
 		</form>
 	</details>

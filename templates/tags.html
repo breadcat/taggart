@@ -4,7 +4,7 @@
 <ul class="tag-menu">
 {{range $cat, $tags := .Data}}
   <li>
-    <a href="#">{{$cat}}</a>
+    <a href="#tag-{{$cat}}" id="tag-{{$cat}}">{{$cat}}</a>
     <ul>
       {{range $tags}}
         <li><a href="/tag/{{$cat}}/{{.Value}}">{{.Value}} ({{.Count}})</a></li>

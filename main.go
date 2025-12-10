@@ -1700,6 +1700,8 @@ type BulkTagFormData struct {
 		Category  string
 		Value     string
 		Operation string
+		TagQuery      string
+		SelectionMode string
 	}
 }
 
@@ -1730,6 +1732,8 @@ func getBulkTagFormData() BulkTagFormData {
 			Category  string
 			Value     string
 			Operation string
+			TagQuery      string
+			SelectionMode string
 		}{Operation: "add"},
 	}
 }
@@ -1741,15 +1745,18 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 		renderTemplate(w, "bulk-tag.html", pageData)
 		return
 	}
-
 	if r.Method == http.MethodPost {
 		rangeStr := strings.TrimSpace(r.FormValue("file_range"))
+		tagQuery := strings.TrimSpace(r.FormValue("tag_query"))
+		selectionMode := r.FormValue("selection_mode")
 		category := strings.TrimSpace(r.FormValue("category"))
 		value := strings.TrimSpace(r.FormValue("value"))
 		operation := r.FormValue("operation")
 
 		formData := getBulkTagFormData()
 		formData.FormData.FileRange = rangeStr
+		formData.FormData.TagQuery = tagQuery
+		formData.FormData.SelectionMode = selectionMode
 		formData.FormData.Category = category
 		formData.FormData.Value = value
 		formData.FormData.Operation = operation
@@ -1760,24 +1767,51 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 			renderTemplate(w, "bulk-tag.html", pageData)
 		}
 
-		if rangeStr == "" {
+		// Validate selection mode
+		if selectionMode == "" {
+			selectionMode = "range" // default
+		}
+
+		// Validate inputs based on selection mode
+		if selectionMode == "range" && rangeStr == "" {
 			createErrorResponse("File range cannot be empty")
 			return
 		}
-
+		if selectionMode == "tags" && tagQuery == "" {
+			createErrorResponse("Tag query cannot be empty")
+			return
+		}
 		if category == "" {
 			createErrorResponse("Category cannot be empty")
 			return
 		}
-
 		if operation == "add" && value == "" {
 			createErrorResponse("Value cannot be empty when adding tags")
 			return
 		}
 
-		fileIDs, err := parseFileIDRange(rangeStr)
-		if err != nil {
-			createErrorResponse(fmt.Sprintf("Invalid file range: %v", err))
+		// Get file IDs based on selection mode
+		var fileIDs []int
+		var err error
+
+		if selectionMode == "range" {
+			fileIDs, err = parseFileIDRange(rangeStr)
+			if err != nil {
+				createErrorResponse(fmt.Sprintf("Invalid file range: %v", err))
+				return
+			}
+		} else if selectionMode == "tags" {
+			fileIDs, err = getFileIDsFromTagQuery(tagQuery)
+			if err != nil {
+				createErrorResponse(fmt.Sprintf("Tag query error: %v", err))
+				return
+			}
+			if len(fileIDs) == 0 {
+				createErrorResponse("No files match the tag query")
+				return
+			}
+		} else {
+			createErrorResponse("Invalid selection mode")
 			return
 		}
 
@@ -1793,22 +1827,33 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Build success message
 		var successMsg string
+		var selectionDesc string
+		if selectionMode == "range" {
+			selectionDesc = fmt.Sprintf("file range '%s'", rangeStr)
+		} else {
+			selectionDesc = fmt.Sprintf("tag query '%s'", tagQuery)
+		}
+
 		if operation == "add" {
-			successMsg = fmt.Sprintf("Tag '%s: %s' added to %d files", category, value, len(validFiles))
+			successMsg = fmt.Sprintf("Tag '%s: %s' added to %d files matching %s",
+				category, value, len(validFiles), selectionDesc)
 		} else {
 			if value != "" {
-				successMsg = fmt.Sprintf("Tag '%s: %s' removed from %d files", category, value, len(validFiles))
+				successMsg = fmt.Sprintf("Tag '%s: %s' removed from %d files matching %s",
+					category, value, len(validFiles), selectionDesc)
 			} else {
-				successMsg = fmt.Sprintf("All '%s' category tags removed from %d files", category, len(validFiles))
+				successMsg = fmt.Sprintf("All '%s' category tags removed from %d files matching %s",
+					category, len(validFiles), selectionDesc)
 			}
 		}
 
+		// Add file list
 		var filenames []string
 		for _, f := range validFiles {
 			filenames = append(filenames, f.Filename)
 		}
-
 		if len(filenames) <= 5 {
 			successMsg += fmt.Sprintf(": %s", strings.Join(filenames, ", "))
 		} else {
@@ -1820,8 +1865,192 @@ func bulkTagHandler(w http.ResponseWriter, r *http.Request) {
 		renderTemplate(w, "bulk-tag.html", pageData)
 		return
 	}
-
 	renderError(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+// getFileIDsFromTagQuery parses a tag query and returns matching file IDs
+// Supports queries like:
+//   - "colour:blue" (single tag)
+//   - "colour:blue,size:large" (multiple tags - AND logic)
+//   - "colour:blue OR colour:red" (OR logic)
+func getFileIDsFromTagQuery(query string) ([]int, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("empty query")
+	}
+
+	// Check if query contains OR operator
+	if strings.Contains(strings.ToUpper(query), " OR ") {
+		return getFileIDsFromORQuery(query)
+	}
+
+	// Otherwise treat as AND query (comma-separated or single tag)
+	return getFileIDsFromANDQuery(query)
+}
+
+// getFileIDsFromANDQuery handles comma-separated tags (AND logic)
+func getFileIDsFromANDQuery(query string) ([]int, error) {
+	tagPairs := strings.Split(query, ",")
+	var tags []TagPair
+
+	for _, pair := range tagPairs {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
+		parts := strings.SplitN(pair, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid tag format '%s', expected 'category:value'", pair)
+		}
+
+		tags = append(tags, TagPair{
+			Category: strings.TrimSpace(parts[0]),
+			Value:    strings.TrimSpace(parts[1]),
+		})
+	}
+
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("no valid tags found in query")
+	}
+
+	// Query database for files matching ALL tags
+	return findFilesWithAllTags(tags)
+}
+
+// getFileIDsFromORQuery handles OR-separated tags
+func getFileIDsFromORQuery(query string) ([]int, error) {
+	tagPairs := strings.Split(strings.ToUpper(query), " OR ")
+	var tags []TagPair
+
+	for _, pair := range tagPairs {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
+		parts := strings.SplitN(pair, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid tag format '%s', expected 'category:value'", pair)
+		}
+
+		tags = append(tags, TagPair{
+			Category: strings.TrimSpace(parts[0]),
+			Value:    strings.TrimSpace(parts[1]),
+		})
+	}
+
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("no valid tags found in query")
+	}
+
+	// Query database for files matching ANY tag
+	return findFilesWithAnyTag(tags)
+}
+
+// TagPair represents a category-value pair
+type TagPair struct {
+	Category string
+	Value    string
+}
+
+// findFilesWithAllTags returns file IDs that have ALL the specified tags
+func findFilesWithAllTags(tags []TagPair) ([]int, error) {
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("no tags specified")
+	}
+
+	// Build query with subqueries for each tag
+	query := `
+		SELECT f.id
+		FROM files f
+		WHERE `
+
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
+
+	for _, tag := range tags {
+		conditions = append(conditions, fmt.Sprintf(`
+			EXISTS (
+				SELECT 1 FROM file_tags ft
+				JOIN tags t ON ft.tag_id = t.id
+				JOIN categories c ON t.category_id = c.id
+				WHERE ft.file_id = f.id
+				AND c.name = $%d
+				AND t.value = $%d
+			)`, argIndex, argIndex+1))
+		args = append(args, tag.Category, tag.Value)
+		argIndex += 2
+	}
+
+	query += strings.Join(conditions, " AND ")
+	query += " ORDER BY f.id"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("database query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var fileIDs []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+		fileIDs = append(fileIDs, id)
+	}
+
+	return fileIDs, rows.Err()
+}
+
+// findFilesWithAnyTag returns file IDs that have ANY of the specified tags
+func findFilesWithAnyTag(tags []TagPair) ([]int, error) {
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("no tags specified")
+	}
+
+	// Build query with OR conditions
+	query := `
+		SELECT DISTINCT f.id
+		FROM files f
+		INNER JOIN file_tags ft ON f.id = ft.file_id
+		INNER JOIN tags t ON ft.tag_id = t.id
+		INNER JOIN categories c ON t.category_id = c.id
+		WHERE `
+
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
+
+	for _, tag := range tags {
+		conditions = append(conditions, fmt.Sprintf(
+			"(c.name = $%d AND t.value = $%d)",
+			argIndex, argIndex+1))
+		args = append(args, tag.Category, tag.Value)
+		argIndex += 2
+	}
+
+	query += strings.Join(conditions, " OR ")
+	query += " ORDER BY f.id"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("database query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var fileIDs []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+		fileIDs = append(fileIDs, id)
+	}
+
+	return fileIDs, rows.Err()
 }
 
 func sanitizeFilename(filename string) string {

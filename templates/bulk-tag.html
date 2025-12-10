@@ -1,37 +1,60 @@
 {{template "_header" .}}
-
-
         <h1>{{.Title}}</h1>
-
         {{if .Data.Error}}
         <div class="alert alert-danger">
             <strong>Error:</strong> {{.Data.Error}}
         </div>
         {{end}}
-
         {{if .Data.Success}}
         <div class="alert alert-success">
             <strong>Success:</strong> {{.Data.Success}}
         </div>
         {{end}}
-
         <form method="POST">
             <div class="form-section">
                 <h3>Select Files</h3>
-
                 <div class="form-group">
+                    <label>Selection Method:</label>
+                    <div class="radio-group">
+                        <label>
+                            <input type="radio" name="selection_mode" value="range"
+                                   {{if or (eq .Data.FormData.SelectionMode "range") (eq .Data.FormData.SelectionMode "")}}checked{{end}}
+                                   onchange="toggleSelectionMode()">
+                            By File ID Range
+                        </label><br>
+                        <label>
+                            <input type="radio" name="selection_mode" value="tags"
+                                   {{if eq .Data.FormData.SelectionMode "tags"}}checked{{end}}
+                                   onchange="toggleSelectionMode()">
+                            By Tag Query
+                        </label>
+                    </div>
+                </div>
+
+                <div id="range-selection" class="form-group">
                     <label for="file_range">File ID Range:</label>
                     <input type="text" id="file_range" name="file_range"
-                           placeholder="e.g., 1-5,8,10-12" value="{{.Data.FormData.FileRange}}" required>
+                           placeholder="e.g., 1-5,8,10-12" value="{{.Data.FormData.FileRange}}">
                     <div class="help-text">
                         Specify file IDs to tag. Use ranges (1-5) and individual IDs (8) separated by commas.
+                    </div>
+                </div>
+
+                <div id="tag-selection" class="form-group" style="display: none;">
+                    <label for="tag_query">Tag Query:</label>
+                    <input type="text" id="tag_query" name="tag_query"
+                           placeholder="e.g., colour:blue or colour:blue,size:large" value="{{.Data.FormData.TagQuery}}">
+                    <div class="help-text">
+                        <strong>Examples:</strong><br>
+                        • <code>colour:blue</code> - Files with this exact tag<br>
+                        • <code>colour:blue,size:large</code> - Files with BOTH tags (AND)<br>
+                        • <code>colour:blue OR colour:red</code> - Files with EITHER tag (OR)
                     </div>
                 </div>
             </div>
 
             <div class="form-section">
                 <h3>Tag Operation</h3>
-
                 <div class="form-group">
                     <label for="category">Category:</label>
                     <input type="text" id="category" name="category" list="categories" value="{{.Data.FormData.Category}}" required>
@@ -42,7 +65,6 @@
                     </datalist>
                     <div class="help-text">Choose an existing category or create a new one.</div>
                 </div>
-
                 <div class="form-group">
                     <label for="value">Value:</label>
                     <input type="text" id="value" name="value" value="{{.Data.FormData.Value}}">
@@ -50,7 +72,6 @@
                         The tag value to add or remove. <strong>Leave empty when removing to delete all values in the category.</strong>
                     </div>
                 </div>
-
                 <div class="form-group">
                     <label>Operation:</label>
                     <div class="radio-group">
@@ -68,10 +89,8 @@
                     </div>
                 </div>
             </div>
-
             <button type="submit" class="text-button">Apply Tags</button>
         </form>
-
 		<br>
 		<details><summary>Recent Files (for reference)</summary>
                 {{range .Data.RecentFiles}}
@@ -82,6 +101,5 @@
                 <div class="file-item">No files found</div>
                 {{end}}
 		</details>
-
     <script src="/static/bulk-tag.js" defer></script>
 {{template "_footer"}}

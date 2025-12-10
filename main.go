@@ -379,6 +379,7 @@ func main() {
 	http.HandleFunc("/search", searchHandler)
 	http.HandleFunc("/bulk-tag", bulkTagHandler)
 	http.HandleFunc("/admin", adminHandler)
+	http.HandleFunc("/thumbnails/generate", generateThumbnailHandler)
 
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(config.UploadDir))))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))

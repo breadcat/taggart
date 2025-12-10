@@ -46,6 +46,11 @@ type Config struct {
 	TagAliases   []TagAliasGroup `json:"tag_aliases"`
 }
 
+type Breadcrumb struct {
+	Name string
+	URL  string
+}
+
 type TagAliasGroup struct {
 	Category string   `json:"category"`
 	Aliases  []string `json:"aliases"`
@@ -56,6 +61,12 @@ type TagDisplay struct {
 	Count int
 }
 
+type ListData struct {
+    Tagged      []File
+    Untagged    []File
+    Breadcrumbs []Breadcrumb
+}
+
 type PageData struct {
 	Title      string
 	Data       interface{}
@@ -64,6 +75,7 @@ type PageData struct {
 	Port       string
 	Files      []File
 	Tags       map[string][]TagDisplay
+	Breadcrumbs []Breadcrumb
 	Pagination *Pagination
 	GallerySize string
 }
@@ -588,10 +600,11 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 		total = untaggedTotal
 	}
 
-	pageData := buildPageDataWithPagination("Home", struct {
-		Tagged   []File
-		Untagged []File
-	}{tagged, untagged}, page, total, perPage)
+	pageData := buildPageDataWithPagination("File Browser", ListData{
+		Tagged:      tagged,
+		Untagged:    untagged,
+		Breadcrumbs: []Breadcrumb{},
+	}, page, total, perPage)
 
 	renderTemplate(w, "list.html", pageData)
 }
@@ -1006,8 +1019,15 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		Values   []string // Expanded values including aliases
 	}
 
+	breadcrumbs := []Breadcrumb{
+		{Name: "Home", URL: "/"},
+		{Name: "Tags", URL: "/tags"}, // or wherever your tags overview page is
+	}
+
 	var filters []filter
-	for _, pair := range tagPairs {
+	currentPath := "/tag"
+
+	for i, pair := range tagPairs {
 		parts := strings.Split(pair, "/")
 		if len(parts) != 2 {
 			renderError(w, "Invalid tag filter path", http.StatusBadRequest)
@@ -1025,6 +1045,34 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		filters = append(filters, f)
+
+		// Build breadcrumb path incrementally
+		if i == 0 {
+			currentPath += "/" + parts[0] + "/" + parts[1]
+		} else {
+			currentPath += "/and/tag/" + parts[0] + "/" + parts[1]
+		}
+
+		// Add category breadcrumb (only if it's the first occurrence)
+		categoryExists := false
+		for _, bc := range breadcrumbs {
+			if bc.Name == parts[0] {
+				categoryExists = true
+				break
+			}
+		}
+		if !categoryExists {
+			breadcrumbs = append(breadcrumbs, Breadcrumb{
+				Name: strings.Title(parts[0]),
+				URL:  "/tags#tag-" + parts[0],
+			})
+		}
+
+		// Add value breadcrumb
+		breadcrumbs = append(breadcrumbs, Breadcrumb{
+			Name: strings.Title(parts[1]),
+			URL:  currentPath,
+		})
 	}
 
 	// Build count query
@@ -1126,10 +1174,12 @@ func tagFilterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	title := "Tagged: " + strings.Join(titleParts, ", ")
 
-	pageData := buildPageDataWithPagination(title, struct {
-		Tagged   []File
-		Untagged []File
-	}{files, nil}, page, total, perPage)
+	pageData := buildPageDataWithPagination(title, ListData{
+		Tagged:      files,
+		Untagged:    nil,
+		Breadcrumbs: []Breadcrumb{}, // Empty here
+	}, page, total, perPage)
+	pageData.Breadcrumbs = breadcrumbs // Set at PageData level
 
 	renderTemplate(w, "list.html", pageData)
 }

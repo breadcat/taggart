@@ -1,5 +1,19 @@
 {{template "_header" .}}
-<h1>Files</h1>
+
+{{if .Breadcrumbs}}
+<div class="breadcrumb">
+  {{range $index, $crumb := .Breadcrumbs}}
+    {{if ne $index 0}} <span class="breadcrumb-separator">&#9654;</span> {{end}}
+    {{if $crumb.URL}}
+      <a href="{{$crumb.URL}}">{{$crumb.Name}}</a>
+    {{else}}
+      <a href="/tags#tag-{{$crumb.Name}}">{{$crumb.Name}}</a>
+    {{end}}
+  {{end}}
+</div>
+{{else}}
+<h1>File Browser</h1>
+{{end}}
 
 {{if .Data.Tagged}}
 <div class="gallery">

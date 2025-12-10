@@ -86,3 +86,10 @@ img.file-content-image {max-width:400px}
 .pagination .disabled{color:#666;cursor:not-allowed}
 .pagination .page-info{font-weight:700;padding:.5rem 1rem}
 .pagination input#pageInput {width: 60px; text-align: center}
+
+/* breadcrumb bar */
+.breadcrumb a,.breadcrumb span,.breadcrumb-separator{vertical-align:bottom}
+.breadcrumb{padding:1rem;font-size:1.1rem}
+.breadcrumb a:hover{text-decoration:underline}
+.breadcrumb span{font-weight:500}
+.breadcrumb-separator{font-size:.8em}

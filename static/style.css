@@ -47,7 +47,7 @@ div.gallery-item a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 div.gallery-item a svg{filter: invert(100%);}
 div.gallery-item,div.gallery-item a,nav ul li,nav>ul>li{display:inline-block}
 div.gallery-item,div.gallery-item a{display:inline-block}
-div.play-button {position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 0; height: 0; border-left: 15px solid white; border-top: 10px solid transparent; border-bottom: 10px solid transparent; opacity: 0.8;}
+div.play-button {position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 0; height: 0; border-left: 15px solid white; border-top: 10px solid transparent; border-bottom: 10px solid transparent}
 div.gallery-video {position: relative; display: inline-block}
 
 /* descriptions */

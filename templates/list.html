@@ -2,7 +2,6 @@
 <h1>Files</h1>
 
 {{if .Data.Tagged}}
-<h2>Tagged Files</h2>
 <div class="gallery">
 {{range .Data.Tagged}}
 {{template "_gallery" dict "File" . "Page" $}}
@@ -12,16 +11,6 @@
 </div>
 {{end}}
 
-{{if .Data.Untagged}}
-<h2>Untagged Files</h2>
-<div class="gallery">
-{{range .Data.Untagged}}
-{{template "_gallery" dict "File" . "Page" $}}
-{{else}}
-  <li>No untagged files.</li>
-{{end}}
-</div>
-{{end}}
 
 {{template "_pagination" .}}
 

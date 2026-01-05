@@ -7,9 +7,10 @@ function parseTimestamp(ts) {
   return seconds;
 }
 
-function makeTimestampsClickable(containerId, videoId) {
+function makeTimestampsClickable(containerId, videoId, imageId) {
   const container = document.getElementById(containerId);
   const video = document.getElementById(videoId);
+  const image = document.getElementById(imageId);
 
   // Regex for timestamps: [h:mm:ss] or [mm:ss] or [ss]
   const timestampRegex = /\[(\d{1,2}(?::\d{2}){0,2})\]/g;
@@ -32,18 +33,24 @@ function makeTimestampsClickable(containerId, videoId) {
     if (e.target.classList.contains("timestamp")) {
       e.preventDefault();
       const time = Number(e.target.dataset.time);
-      video.currentTime = time;
-      video.play();
+      if (video) {
+        video.currentTime = time;
+        video.play();
+      }
     } else if (e.target.classList.contains("rotate")) {
       e.preventDefault();
       const angle = Number(e.target.dataset.angle);
-      video.style.transform = `rotate(${angle}deg)`;
-      video.style.transformOrigin = "center center";
+      // Apply rotation to whichever element exists
+      const target = video || image;
+      if (target) {
+        target.style.transform = `rotate(${angle}deg)`;
+        target.style.transformOrigin = "center center";
+      }
     }
   });
 }
 
 // Run it
 document.addEventListener("DOMContentLoaded", () => {
-  makeTimestampsClickable("current-description", "videoPlayer");
+  makeTimestampsClickable("current-description", "videoPlayer", "imageViewer");
 });

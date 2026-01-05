@@ -59,7 +59,8 @@
 <div class="file-content">
 
 	{{if hasAnySuffix .Data.File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
-	  <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" class="file-content-image"></a><br>
+	  <a href="/uploads/{{.Data.EscapedFilename}}" target="_blank"><img src="/uploads/{{.Data.EscapedFilename}}" id="imageViewer" class="file-content-image"></a><br>
+	  <script src="/static/timestamps.js" defer></script>
 	{{else if hasAnySuffix .Data.File.Filename ".mp4" ".webm" ".mov" ".m4v"}}
 	  <video id="videoPlayer" controls loop muted width="600">
 		<source src="/uploads/{{.Data.EscapedFilename}}">

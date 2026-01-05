@@ -4,13 +4,13 @@
 <ul class="tag-menu">
 {{range $cat, $tags := .Data}}
   <li>
-    <a href="#tag-{{$cat}}" id="tag-{{$cat}}">{{$cat}}</a>
+    <a href="#tag-{{$cat}}" id="tag-{{$cat}}">{{$cat}}</a>&nbsp;&lpar;<a href="#tag-{{$cat}}-end">End</a>&rpar;
     <ul>
       {{range $tags}}
         <li><a href="/tag/{{$cat}}/{{.Value}}">{{.Value}} ({{.Count}})</a></li>
       {{end}}
         <li><a href="/tag/{{$cat}}/previews">Previews</a></li>
-        <li><a href="/tag/{{$cat}}/unassigned">Unassigned</a></li>
+        <li><a href="/tag/{{$cat}}/unassigned" id="tag-{{$cat}}-end">Unassigned</a></li>
     </ul>
   </li>
 {{end}}

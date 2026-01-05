@@ -1,0 +1,51 @@
+{{template "_header" .}}
+<h2>CBZ: {{.Data.File.Filename}}</h2>
+
+<div class="cbz-viewer"
+     data-file-id="{{.Data.File.ID}}"
+     data-current-index="{{.Data.CurrentIndex}}"
+     data-total-images="{{.Data.TotalImages}}">
+	<div class="cbz-navigation">
+		<div class="nav-buttons">
+			{{if .Data.HasPrev}}
+				<a href="/cbz/{{.Data.File.ID}}/0" class="nav-btn">⏮ First</a>
+				<a href="/cbz/{{.Data.File.ID}}/{{sub .Data.CurrentIndex 1}}" class="nav-btn">◀ Previous</a>
+			{{else}}
+				<span class="nav-btn disabled">⏮ First</span>
+				<span class="nav-btn disabled">◀ Previous</span>
+			{{end}}
+
+			<span class="page-counter">Page {{add .Data.CurrentIndex 1}} / {{.Data.TotalImages}}</span>
+
+			{{if .Data.HasNext}}
+				<a href="/cbz/{{.Data.File.ID}}/{{add .Data.CurrentIndex 1}}" class="nav-btn">Next ▶</a>
+				<a href="/cbz/{{.Data.File.ID}}/{{sub .Data.TotalImages 1}}" class="nav-btn">Last ⏭</a>
+			{{else}}
+				<span class="nav-btn disabled">Next ▶</span>
+				<span class="nav-btn disabled">Last ⏭</span>
+			{{end}}
+		</div>
+
+		<a href="/file/{{.Data.File.ID}}" class="nav-btn back-btn">← Back to File Info</a>
+	</div>
+
+	<div class="cbz-image-container">
+		<img src="/cbz/{{.Data.File.ID}}/image/{{.Data.CurrentIndex}}" alt="Page {{add .Data.CurrentIndex 1}}" class="cbz-image">
+	</div>
+
+	<div class="cbz-gallery">
+		<h3>All Pages</h3>
+		<div class="gallery-grid">
+			{{range $i, $img := .Data.Images}}
+				<a href="/cbz/{{$.Data.File.ID}}/{{$i}}" class="gallery-thumb {{if eq $i $.Data.CurrentIndex}}active{{end}}">
+					<img src="/cbz/{{$.Data.File.ID}}/image/{{$i}}" alt="Page {{add $i 1}}" loading="lazy">
+					<span class="thumb-label">{{add $i 1}}</span>
+				</a>
+			{{end}}
+		</div>
+	</div>
+</div>
+
+<script src="/static/cbz-viewer.js" defer></script>
+
+{{template "_footer"}}

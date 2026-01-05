@@ -3,6 +3,11 @@
     <a href="/file/{{.File.ID}}" title="{{.File.Filename}}">
         {{if hasAnySuffix .File.Filename ".jpg" ".jpeg" ".png" ".gif" ".webp"}}
             <img src="/uploads/{{.File.EscapedFilename}}">
+        {{else if hasAnySuffix .File.Filename ".cbz"}}
+            <div class="gallery-video">
+                <img src="/uploads/thumbnails/{{.File.EscapedFilename}}.jpg">
+                <div class="cbz-icon"></div>
+            </div>
         {{else if hasAnySuffix .File.Filename ".mp4" ".webm" ".mov" ".m4v"}}
             <div class="gallery-video">
                 <img src="/uploads/thumbnails/{{.File.EscapedFilename}}.jpg">
